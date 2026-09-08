@@ -3,20 +3,24 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: WorkTruth evidence-integrity and verification-prioritization API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: auth
+  - name: dashboard
+  - name: projects
+  - name: analysis
+  - name: investigations
+  - name: uploads
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +28,636 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Sign in to the demo officer workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Authenticated officer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Invalid credentials
+  /dashboard/stats:
+    get:
+      operationId: getDashboardStats
+      tags: [dashboard]
+      summary: Dashboard overview metrics
+      responses:
+        "200":
+          description: Dashboard statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+  /dashboard/activity:
+    get:
+      operationId: getDashboardActivity
+      tags: [dashboard]
+      summary: Recent evidence and investigation activity
+      responses:
+        "200":
+          description: Activity feed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityItem"
+  /projects:
+    get:
+      operationId: listProjects
+      tags: [projects]
+      summary: List and filter projects
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: priority
+          schema:
+            type: string
+            enum: [LOW, MODERATE, HIGH, CRITICAL]
+        - in: query
+          name: district
+          schema: { type: string }
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: sort
+          schema: { type: string, enum: [priority, financial, visual, evidence, date] }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Project queue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectList"
+    post:
+      operationId: createProject
+      tags: [projects]
+      summary: Create a project record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectInput"
+      responses:
+        "201":
+          description: Created project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{id}:
+    get:
+      operationId: getProject
+      tags: [projects]
+      summary: Get a project investigation record
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Project detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectDetail"
+        "404": { description: Project not found }
+    put:
+      operationId: updateProject
+      tags: [projects]
+      summary: Update a project record
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectUpdate"
+      responses:
+        "200":
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+  /projects/{id}/analysis:
+    get:
+      operationId: getProjectAnalysis
+      tags: [analysis]
+      summary: Get all multimodal analysis results
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Analysis results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisBundle"
+    post:
+      operationId: analyzeProject
+      tags: [analysis]
+      summary: Run the deterministic local evidence analysis pipeline
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "202":
+          description: Analysis accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisBundle"
+  /projects/{id}/risk:
+    get:
+      operationId: getProjectRisk
+      tags: [analysis]
+      summary: Get explainable evidence fusion and verification priority
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Risk score and reasons
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskAssessment"
+  /projects/{id}/financial-analysis:
+    get:
+      operationId: getFinancialAnalysis
+      tags: [analysis]
+      summary: Get financial anomaly analysis
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Financial analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinancialAnalysis"
+  /projects/{id}/visual-analysis:
+    get:
+      operationId: getVisualAnalysis
+      tags: [analysis]
+      summary: Get visual evidence analysis
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Visual analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisualAnalysis"
+  /projects/{id}/text-analysis:
+    get:
+      operationId: getTextAnalysis
+      tags: [analysis]
+      summary: Get NLP description similarity analysis
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Text analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TextAnalysis"
+  /projects/{id}/geo-analysis:
+    get:
+      operationId: getGeoAnalysis
+      tags: [analysis]
+      summary: Get geospatial consistency analysis
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Geographic analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeoAnalysis"
+  /projects/{id}/temporal-analysis:
+    get:
+      operationId: getTemporalAnalysis
+      tags: [analysis]
+      summary: Get temporal consistency analysis
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Temporal analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TemporalAnalysis"
+  /projects/{id}/investigation:
+    get:
+      operationId: getInvestigation
+      tags: [investigations]
+      summary: Get investigation workflow state
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Investigation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Investigation"
+    post:
+      operationId: updateInvestigation
+      tags: [investigations]
+      summary: Update investigation status, notes, or decision
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvestigationInput"
+      responses:
+        "200":
+          description: Updated investigation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Investigation"
+  /upload/projects:
+    post:
+      operationId: uploadProjects
+      tags: [uploads]
+      summary: Validate and import a CSV or spreadsheet batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadInput"
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
 components:
+  parameters:
+    ProjectId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string }
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
-        status:
-          type: string
-      required:
-        - status
-
+        status: { type: string }
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+    AuthSession:
+      type: object
+      required: [user, token]
+      properties:
+        token: { type: string }
+        user:
+          $ref: "#/components/schemas/User"
+    User:
+      type: object
+      required: [name, email, role]
+      properties:
+        name: { type: string }
+        email: { type: string }
+        role: { type: string }
+    Project:
+      type: object
+      required: [id, name, category, district, state, sanctionAmount, expenditure, progress, evidenceQuality, priority, primaryFlag, latitude, longitude, startDate, expectedCompletion]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        district: { type: string }
+        state: { type: string }
+        location: { type: string }
+        sanctionAmount: { type: number }
+        expenditure: { type: number }
+        progress: { type: number }
+        evidenceQuality: { type: number }
+        priority: { type: string, enum: [LOW, MODERATE, HIGH, CRITICAL] }
+        primaryFlag: { type: string }
+        latitude: { type: number }
+        longitude: { type: number }
+        startDate: { type: string }
+        expectedCompletion: { type: string }
+        actualCompletion: { type: ["string", "null"] }
+    ProjectInput:
+      type: object
+      required: [id, name, category, district, state, sanctionAmount, expenditure, progress, latitude, longitude, description]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        district: { type: string }
+        state: { type: string }
+        location: { type: string }
+        sanctionAmount: { type: number }
+        expenditure: { type: number }
+        progress: { type: number }
+        latitude: { type: number }
+        longitude: { type: number }
+        description: { type: string }
+        startDate: { type: string }
+        expectedCompletion: { type: string }
+    ProjectUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        progress: { type: number }
+        status: { type: string }
+        evidenceQuality: { type: number }
+    ProjectDetail:
+      allOf:
+        - $ref: "#/components/schemas/Project"
+        - type: object
+          required: [description, contractor, analysis, investigation]
+          properties:
+            description: { type: string }
+            contractor: { type: string }
+            analysis:
+              $ref: "#/components/schemas/AnalysisBundle"
+            investigation:
+              $ref: "#/components/schemas/Investigation"
+    ProjectList:
+      type: object
+      required: [items, total, page, pageSize, districts, categories]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }
+        total: { type: integer }
+        page: { type: integer }
+        pageSize: { type: integer }
+        districts:
+          type: array
+          items: { type: string }
+        categories:
+          type: array
+          items: { type: string }
+    DashboardStats:
+      type: object
+      required: [totalProjects, lowRisk, moderateRisk, highRisk, criticalRisk, verificationRequired, averageEvidenceQuality, riskDistribution, categoryBreakdown, anomalySignals, trend, flaggedProjects]
+      properties:
+        totalProjects: { type: integer }
+        lowRisk: { type: integer }
+        moderateRisk: { type: integer }
+        highRisk: { type: integer }
+        criticalRisk: { type: integer }
+        verificationRequired: { type: integer }
+        averageEvidenceQuality: { type: number }
+        riskDistribution:
+          type: array
+          items: { $ref: "#/components/schemas/DistributionPoint" }
+        categoryBreakdown:
+          type: array
+          items: { $ref: "#/components/schemas/DistributionPoint" }
+        anomalySignals:
+          type: array
+          items: { $ref: "#/components/schemas/DistributionPoint" }
+        trend:
+          type: array
+          items: { $ref: "#/components/schemas/TrendPoint" }
+        flaggedProjects:
+          type: array
+          items: { $ref: "#/components/schemas/Project" }
+    DistributionPoint:
+      type: object
+      required: [label, value]
+      properties:
+        label: { type: string }
+        value: { type: number }
+    TrendPoint:
+      type: object
+      required: [month, low, moderate, high, critical]
+      properties:
+        month: { type: string }
+        low: { type: number }
+        moderate: { type: number }
+        high: { type: number }
+        critical: { type: number }
+    ActivityItem:
+      type: object
+      required: [id, type, title, detail, time]
+      properties:
+        id: { type: string }
+        type: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        time: { type: string }
+        projectId: { type: ["string", "null"] }
+    AnalysisBundle:
+      type: object
+      required: [status, risk, financial, visual, text, geo, temporal, updatedAt]
+      properties:
+        status: { type: string, enum: [Queued, Processing, Completed, Failed] }
+        updatedAt: { type: string }
+        risk: { $ref: "#/components/schemas/RiskAssessment" }
+        financial: { $ref: "#/components/schemas/FinancialAnalysis" }
+        visual: { $ref: "#/components/schemas/VisualAnalysis" }
+        text: { $ref: "#/components/schemas/TextAnalysis" }
+        geo: { $ref: "#/components/schemas/GeoAnalysis" }
+        temporal: { $ref: "#/components/schemas/TemporalAnalysis" }
+    RiskAssessment:
+      type: object
+      required: [score, priority, reasons, recommendation, weights, components]
+      properties:
+        score: { type: number }
+        priority: { type: string, enum: [LOW, MODERATE, HIGH, CRITICAL] }
+        reasons:
+          type: array
+          items: { type: string }
+        recommendation: { type: string }
+        weights:
+          type: object
+          additionalProperties: { type: number }
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignalScore"
+    SignalScore:
+      type: object
+      required: [label, score, weight, contribution]
+      properties:
+        label: { type: string }
+        score: { type: number }
+        weight: { type: number }
+        contribution: { type: number }
+    FinancialAnalysis:
+      type: object
+      required: [sanction, expenditure, benchmark, deviation, score, status, explanation, peers]
+      properties:
+        sanction: { type: number }
+        expenditure: { type: number }
+        benchmark: { type: number }
+        deviation: { type: number }
+        score: { type: number }
+        status: { type: string }
+        explanation: { type: string }
+        peers:
+          type: array
+          items: { $ref: "#/components/schemas/PeerPoint" }
+    PeerPoint:
+      type: object
+      required: [label, amount]
+      properties:
+        label: { type: string }
+        amount: { type: number }
+    VisualAnalysis:
+      type: object
+      required: [score, status, explanation, images]
+      properties:
+        score: { type: number }
+        status: { type: string }
+        explanation: { type: string }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceImage" }
+    EvidenceImage:
+      type: object
+      required: [id, label, captureDate, quality, similarity, imageUrl, matchedImageUrl]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        captureDate: { type: string }
+        gps: { type: ["string", "null"] }
+        quality: { type: number }
+        similarity: { type: number }
+        imageUrl: { type: string }
+        matchedImageUrl: { type: string }
+    TextAnalysis:
+      type: object
+      required: [score, status, explanation, current, similar, similarity]
+      properties:
+        score: { type: number }
+        status: { type: string }
+        explanation: { type: string }
+        current: { type: string }
+        similar: { type: string }
+        similarity: { type: number }
+    GeoAnalysis:
+      type: object
+      required: [score, status, explanation, declared, photograph, distanceKm, nearby]
+      properties:
+        score: { type: number }
+        status: { type: string }
+        explanation: { type: string }
+        declared: { $ref: "#/components/schemas/Coordinate" }
+        photograph: { $ref: "#/components/schemas/Coordinate" }
+        distanceKm: { type: number }
+        nearby:
+          type: array
+          items: { $ref: "#/components/schemas/MapProject" }
+    Coordinate:
+      type: object
+      required: [lat, lng]
+      properties:
+        lat: { type: number }
+        lng: { type: number }
+    MapProject:
+      type: object
+      required: [id, name, priority, flag, lat, lng]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        priority: { type: string }
+        flag: { type: string }
+        lat: { type: number }
+        lng: { type: number }
+    TemporalAnalysis:
+      type: object
+      required: [score, status, explanation, reportedProgress, visualProgress, timeline]
+      properties:
+        score: { type: number }
+        status: { type: string }
+        explanation: { type: string }
+        reportedProgress: { type: number }
+        visualProgress: { type: string }
+        timeline:
+          type: array
+          items: { $ref: "#/components/schemas/TimelinePoint" }
+    TimelinePoint:
+      type: object
+      required: [label, progress]
+      properties:
+        label: { type: string }
+        progress: { type: number }
+    Investigation:
+      type: object
+      required: [status, notes, decision, history]
+      properties:
+        status: { type: string, enum: [Pending Review, Under Investigation, Verified, Needs Field Visit, Resolved] }
+        notes: { type: string }
+        decision: { type: string }
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/HistoryItem" }
+    HistoryItem:
+      type: object
+      required: [id, status, note, officer, time]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        note: { type: string }
+        officer: { type: string }
+        time: { type: string }
+    InvestigationInput:
+      type: object
+      required: [status, notes, decision]
+      properties:
+        status: { type: string }
+        notes: { type: string }
+        decision: { type: string }
+    UploadInput:
+      type: object
+      required: [filename, records]
+      properties:
+        filename: { type: string }
+        records:
+          type: array
+          items: { $ref: "#/components/schemas/ProjectInput" }
+    UploadResult:
+      type: object
+      required: [imported, rejected, missingFields, qualityScore]
+      properties:
+        imported: { type: integer }
+        rejected: { type: integer }
+        missingFields:
+          type: array
+          items: { type: string }
+        qualityScore: { type: number }

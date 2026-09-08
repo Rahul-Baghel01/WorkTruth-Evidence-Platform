@@ -1,0 +1,1 @@
+- [WorkTruth score semantics](worktruth-score-semantics.md) — risk and lens scores are normalized fractions; contribution values are display percentages.
