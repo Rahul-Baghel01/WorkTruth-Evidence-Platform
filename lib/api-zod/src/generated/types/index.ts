@@ -42,6 +42,8 @@ export * from './textAnalysis';
 export * from './timelinePoint';
 export * from './trendPoint';
 export * from './uploadInput';
+export * from './uploadRecord';
 export * from './uploadResult';
+export * from './uploadRowError';
 export * from './user';
 export * from './visualAnalysis';

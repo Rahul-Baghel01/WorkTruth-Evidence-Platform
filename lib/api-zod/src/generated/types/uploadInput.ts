@@ -5,9 +5,12 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
-import type { ProjectInput } from './projectInput';
+import type { UploadRecord } from './uploadRecord';
 
 export interface UploadInput {
   filename: string;
-  records: ProjectInput[];
+  /** Raw register rows; the API validates each row against ProjectInput. */
+  records: UploadRecord[];
+  /** Spreadsheet row number for each record, including the header row. */
+  rowNumbers?: number[];
 }

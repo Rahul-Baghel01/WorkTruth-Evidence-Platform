@@ -650,10 +650,18 @@ components:
         filename: { type: string }
         records:
           type: array
-          items: { $ref: "#/components/schemas/ProjectInput" }
+          description: Raw register rows; the API validates each row against ProjectInput.
+          items: { $ref: "#/components/schemas/UploadRecord" }
+        rowNumbers:
+          type: array
+          description: Spreadsheet row number for each record, including the header row.
+          items: { type: integer }
+    UploadRecord:
+      type: object
+      additionalProperties: true
     UploadResult:
       type: object
-      required: [imported, rejected, missingFields, qualityScore]
+      required: [imported, rejected, missingFields, qualityScore, rowErrors]
       properties:
         imported: { type: integer }
         rejected: { type: integer }
@@ -661,3 +669,15 @@ components:
           type: array
           items: { type: string }
         qualityScore: { type: number }
+        rowErrors:
+          type: array
+          items:
+            $ref: "#/components/schemas/UploadRowError"
+    UploadRowError:
+      type: object
+      required: [row, errors]
+      properties:
+        row: { type: integer }
+        errors:
+          type: array
+          items: { type: string }

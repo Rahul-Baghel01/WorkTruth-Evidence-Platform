@@ -298,9 +298,19 @@ export interface InvestigationInput {
   decision: string;
 }
 
+export interface UploadRecord { [key: string]: unknown }
+
 export interface UploadInput {
   filename: string;
-  records: ProjectInput[];
+  /** Raw register rows; the API validates each row against ProjectInput. */
+  records: UploadRecord[];
+  /** Spreadsheet row number for each record, including the header row. */
+  rowNumbers?: number[];
+}
+
+export interface UploadRowError {
+  row: number;
+  errors: string[];
 }
 
 export interface UploadResult {
@@ -308,6 +318,7 @@ export interface UploadResult {
   rejected: number;
   missingFields: string[];
   qualityScore: number;
+  rowErrors: UploadRowError[];
 }
 
 export type ListProjectsParams = {

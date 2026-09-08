@@ -265,12 +265,28 @@ router.post("/upload/projects", async (req, res): Promise<void> => {
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   await ensureSeeded();
   let imported = 0;
-  for (const input of parsed.data.records) {
+  const rowErrors: Array<{ row: number; errors: string[] }> = [];
+  for (const [index, input] of parsed.data.records.entries()) {
+    const sourceRow = parsed.data.rowNumbers?.[index] ?? index + 2;
+    const validated = CreateProjectBody.safeParse(input);
+    if (!validated.success) {
+      rowErrors.push({
+        row: sourceRow,
+        errors: validated.error.issues.map((issue) => `${issue.path.join(".") || "record"}: ${issue.message}`),
+      });
+      continue;
+    }
+    const existing = await db.select({ id: projectsTable.id }).from(projectsTable).where(eq(projectsTable.id, validated.data.id));
+    if (existing.length) {
+      rowErrors.push({ row: sourceRow, errors: [`id: Project ID "${validated.data.id}" already exists`] });
+      continue;
+    }
+    const validatedInput = validated.data;
     const row = {
-      ...input,
-      location: input.location ?? "Imported location",
-      startDate: input.startDate ?? new Date().toISOString().slice(0, 10),
-      expectedCompletion: input.expectedCompletion ?? new Date().toISOString().slice(0, 10),
+      ...validatedInput,
+      location: validatedInput.location ?? "Imported location",
+      startDate: validatedInput.startDate ?? new Date().toISOString().slice(0, 10),
+      expectedCompletion: validatedInput.expectedCompletion ?? new Date().toISOString().slice(0, 10),
       evidenceQuality: 0,
       priority: "MODERATE",
       primaryFlag: "Insufficient evidence",
@@ -285,7 +301,13 @@ router.post("/upload/projects", async (req, res): Promise<void> => {
       imported += 1;
     }
   }
-  res.json(UploadProjectsResponse.parse({ imported, rejected: parsed.data.records.length - imported, missingFields: [], qualityScore: imported ? 0.86 : 0 }));
+  res.json(UploadProjectsResponse.parse({
+    imported,
+    rejected: rowErrors.length,
+    missingFields: [],
+    qualityScore: imported ? 0.86 : 0,
+    rowErrors,
+  }));
 });
 
 export default router;

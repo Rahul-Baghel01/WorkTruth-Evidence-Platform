@@ -735,29 +735,19 @@ export const UpdateInvestigationResponse = zod.object({
  */
 export const UploadProjectsBody = zod.object({
   "filename": zod.string(),
-  "records": zod.array(zod.object({
-  "id": zod.string(),
-  "name": zod.string(),
-  "category": zod.string(),
-  "district": zod.string(),
-  "state": zod.string(),
-  "location": zod.string().optional(),
-  "sanctionAmount": zod.number(),
-  "expenditure": zod.number(),
-  "progress": zod.number(),
-  "latitude": zod.number(),
-  "longitude": zod.number(),
-  "description": zod.string(),
-  "startDate": zod.string().optional(),
-  "expectedCompletion": zod.string().optional()
-}))
+  "records": zod.array(zod.record(zod.string(), zod.unknown())).describe('Raw register rows; the API validates each row against ProjectInput.'),
+  "rowNumbers": zod.array(zod.number().int()).optional().describe('Spreadsheet row number for each record, including the header row.')
 })
 
 export const UploadProjectsResponse = zod.object({
   "imported": zod.number().int(),
   "rejected": zod.number().int(),
   "missingFields": zod.array(zod.string()),
-  "qualityScore": zod.number()
+  "qualityScore": zod.number(),
+  "rowErrors": zod.array(zod.object({
+  "row": zod.number().int(),
+  "errors": zod.array(zod.string())
+}))
 })
 
 

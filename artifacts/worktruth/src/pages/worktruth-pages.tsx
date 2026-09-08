@@ -68,7 +68,7 @@ import {
   useUpdateProject,
   useUploadProjects,
 } from '@workspace/api-client-react';
-import type { Project, ProjectPriority } from '@workspace/api-client-react';
+import type { Project, ProjectPriority, UploadResult } from '@workspace/api-client-react';
 import {
   ActivityList,
   Card,
@@ -92,6 +92,7 @@ import {
   money,
   priorityTone,
 } from '@/components/worktruth';
+import { parseRegisterFile, type RegisterParseResult } from '@/lib/register-import';
 
 function LineChart({ points, height = 180 }: { points: Array<{ label: string; values: number[] }>; height?: number }) {
   const all = points.flatMap((point) => point.values);
@@ -252,11 +253,43 @@ export function UploadPage() {
   const upload = useUploadProjects();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<{ imported: number; rejected: number; missingFields: string[]; qualityScore: number } | null>(null);
+  const [result, setResult] = useState<UploadResult | null>(null);
+  const [parseResult, setParseResult] = useState<RegisterParseResult | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const chooseFile = (candidate?: File) => { if (candidate && (candidate.name.endsWith('.json') || candidate.name.endsWith('.csv'))) setFile(candidate); };
-  const processFile = async () => { if (!file) return; try { const raw = await file.text(); const records = file.name.endsWith('.json') ? JSON.parse(raw) : []; upload.mutate({ data: { filename: file.name, records } }, { onSuccess: (data) => setResult(data) }); } catch { setResult({ imported: 0, rejected: 1, missingFields: ['Valid JSON records'], qualityScore: 0 }); } };
-  return <ShellPage><PageIntro eyebrow="IMPORT REGISTER" title="Bring in the next record." description="Load a structured project register and let WorkTruth check its shape before it enters the evidence desk." action={<button className="button button-secondary" data-testid="button-download-template"><Download size={15} /> Download template</button>} /><div className="upload-layout"><Card className={cn('upload-dropzone', dragging && 'upload-dragging')} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); chooseFile(e.dataTransfer.files?.[0]); }}><input ref={fileRef} type="file" accept=".json,.csv" className="sr-only" data-testid="input-upload-file" onChange={(e) => chooseFile(e.target.files?.[0])} /><div className="upload-icon"><CloudUpload size={25} /></div><h2>{file ? file.name : 'Drop a project register here'}</h2><p>{file ? 'Ready to validate this file before import.' : 'CSV or JSON · up to 10,000 project records'}</p><button className="button button-dark" data-testid="button-choose-file" onClick={() => fileRef.current?.click()}>{file ? 'Choose another file' : 'Choose file'} <Upload size={15} /></button>{file && <button className="button button-gold upload-process" data-testid="button-process-upload" onClick={processFile} disabled={upload.isPending}>{upload.isPending ? 'Validating…' : 'Validate & import'} <ArrowRight size={15} /></button>}<div className="upload-note"><Shield size={14} /> No record is committed until validation completes.</div></Card><div className="upload-aside"><Card><div className="card-overline"><span>EXPECTED SHAPE</span><FileSpreadsheet size={14} /></div><div className="field-list">{['Project ID + name', 'Category, district, state', 'Sanction + expenditure', 'Progress + coordinates', 'Description + dates'].map((item) => <div key={item}><Check size={14} />{item}</div>)}</div><button className="text-link" data-testid="button-view-schema">View data schema <ChevronRight size={14} /></button></Card><Card className="upload-integrity-card"><div className="card-overline"><span>IMPORT PRINCIPLE</span><Shield size={14} /></div><p>Importing data does not create a finding. It creates a record that can be checked, explained, and corrected.</p></Card></div></div>{result && <Card className="upload-result fade-up"><div className="result-icon"><CheckCircle2 size={22} /></div><div><div className="eyebrow">VALIDATION COMPLETE</div><h2>{result.imported} records imported</h2><p>{result.rejected} rejected · {result.qualityScore}% register quality{result.missingFields.length ? ` · Missing: ${result.missingFields.join(', ')}` : ''}</p></div><Link href="/projects" className="button button-dark" data-testid="link-view-imported">Review queue <ArrowRight size={15} /></Link></Card>}</ShellPage>;
+  const [parsing, setParsing] = useState(false);
+
+  const chooseFile = (candidate?: File) => {
+    if (!candidate) return;
+    setFile(candidate);
+    setParseResult(null);
+    setResult(null);
+    setServerError(null);
+  };
+
+  const processFile = async () => {
+    if (!file) return;
+    setResult(null);
+    setServerError(null);
+    setParsing(true);
+    const parsed = await parseRegisterFile(file);
+    setParsing(false);
+    setParseResult(parsed);
+    if (parsed.errors.length || !parsed.records.length) return;
+    upload.mutate(
+      { data: { filename: file.name, records: parsed.records, rowNumbers: parsed.rowNumbers } },
+      {
+        onSuccess: (data) => setResult(data),
+        onError: () => setServerError('The register could not be imported. The API rejected the file before any invalid record was committed.'),
+      },
+    );
+  };
+
+  const parseHasErrors = Boolean(parseResult?.errors.length);
+  const rowIssueCount = parseResult?.errors.filter((item) => item.row !== 'header').length ?? 0;
+  const qualityPercent = result ? Math.round(result.qualityScore * 100) : 0;
+
+  return <ShellPage><PageIntro eyebrow="IMPORT REGISTER" title="Bring in the next record." description="Load the CSV or XLSX register your team already uses. WorkTruth maps its headers, checks every row, and only then sends valid records to the import API." action={<button className="button button-secondary" data-testid="button-download-template"><Download size={15} /> Download template</button>} /><div className="upload-layout"><Card className={cn('upload-dropzone', dragging && 'upload-dragging')} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); chooseFile(e.dataTransfer.files?.[0]); }}><input ref={fileRef} type="file" accept=".csv,.xlsx" className="sr-only" data-testid="input-upload-file" onChange={(e) => chooseFile(e.target.files?.[0])} /><div className="upload-icon"><CloudUpload size={25} /></div><h2>{file ? file.name : 'Drop a project register here'}</h2><p>{file ? 'Ready to map headers and validate every row.' : 'CSV or XLSX · up to 10,000 project records'}</p><button className="button button-dark" data-testid="button-choose-file" onClick={() => fileRef.current?.click()}>{file ? 'Choose another file' : 'Choose file'} <Upload size={15} /></button>{file && <button className="button button-gold upload-process" data-testid="button-process-upload" onClick={processFile} disabled={upload.isPending || parsing}>{parsing ? 'Reading register…' : upload.isPending ? 'Importing…' : 'Map, validate & import'} <ArrowRight size={15} /></button>}<div className="upload-note"><Shield size={14} /> No record is committed until validation completes.</div></Card><div className="upload-aside"><Card><div className="card-overline"><span>EXPECTED SHAPE</span><FileSpreadsheet size={14} /></div><div className="field-list">{['Project ID + name', 'Category, district, state', 'Sanction + expenditure', 'Progress + coordinates', 'Description + dates'].map((item) => <div key={item}><Check size={14} />{item}</div>)}</div><button className="text-link" data-testid="button-view-schema">View data schema <ChevronRight size={14} /></button></Card><Card className="upload-integrity-card"><div className="card-overline"><span>IMPORT PRINCIPLE</span><Shield size={14} /></div><p>Importing data does not create a finding. It creates a record that can be checked, explained, and corrected.</p></Card></div></div>{parseResult && <Card className={cn('upload-validation', parseHasErrors && 'upload-validation-error')}><div className="validation-heading"><div><div className="eyebrow">{parseHasErrors ? 'ACTION REQUIRED' : 'REGISTER MAPPED'}</div><h2>{parseHasErrors ? rowIssueCount ? `${rowIssueCount} row issues found` : 'Header mapping needs attention' : `${parseResult.records.length} rows ready to import`}</h2></div>{parseHasErrors ? <AlertCircle size={21} /> : <CheckCircle2 size={21} />}</div>{parseResult.headerMappings.length > 0 && <div className="header-mapping"><strong>Mapped columns</strong><div>{parseResult.headerMappings.map((mapping, index) => <span key={`${index}-${mapping.source}-${mapping.target ?? 'unknown'}`} className={cn(!mapping.target && 'mapping-unmatched')}>{mapping.source || '(blank)'}{mapping.target ? ` → ${mapping.target}` : ' · not recognised'}</span>)}</div></div>}{parseHasErrors && <div className="row-errors">{parseResult.errors.map((item) => <div className="row-error" key={`${item.row}-${item.errors.join('|')}`}><strong>{item.row === 'header' ? 'Header' : `Row ${item.row}`}</strong><ul>{item.errors.map((message) => <li key={message}>{message}</li>)}</ul></div>)}</div>}</Card>}{serverError && <Card className="upload-validation upload-validation-error"><div className="validation-heading"><div><div className="eyebrow">IMPORT NOT COMPLETED</div><h2>Server validation stopped the import</h2><p>{serverError}</p></div><AlertCircle size={21} /></div></Card>}{result && <Card className="upload-result fade-up"><div className="result-icon"><CheckCircle2 size={22} /></div><div><div className="eyebrow">VALIDATION COMPLETE</div><h2>{result.imported} records imported</h2><p>{result.rejected} rejected · {qualityPercent}% register quality{result.missingFields.length ? ` · Missing: ${result.missingFields.join(', ')}` : ''}</p>{result.rowErrors.length > 0 && <div className="row-errors result-row-errors">{result.rowErrors.map((item) => <div className="row-error" key={`${item.row}-${item.errors.join('|')}`}><strong>Row {item.row}</strong><span>{item.errors.join(' · ')}</span></div>)}</div>}</div><Link href="/projects" className="button button-dark" data-testid="link-view-imported">Review queue <ArrowRight size={15} /></Link></Card>}</ShellPage>;
 }
 
 export function SettingsPage() {

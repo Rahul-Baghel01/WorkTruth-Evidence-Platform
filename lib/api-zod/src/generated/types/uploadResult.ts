@@ -5,10 +5,12 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
+import type { UploadRowError } from './uploadRowError';
 
 export interface UploadResult {
   imported: number;
   rejected: number;
   missingFields: string[];
   qualityScore: number;
+  rowErrors: UploadRowError[];
 }
