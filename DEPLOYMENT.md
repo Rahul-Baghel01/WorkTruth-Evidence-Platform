@@ -253,3 +253,8 @@ Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
   frontend build (with and without `VITE_API_BASE_URL`), the bundled API boot
   on `0.0.0.0`, `/api/healthz` = 200, and credentialed CORS for configured vs.
   rejected origins.
+
+> **Never paste a real connection string or password into this file** (or any
+> tracked file). Set `DATABASE_URL` only in the Render dashboard / your shell
+> session. For a one-off `pnpm db:push` from your machine, pass it inline for
+> that command only and clear it afterwards.
