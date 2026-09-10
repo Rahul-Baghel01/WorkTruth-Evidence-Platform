@@ -5,13 +5,38 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
-import type { TimelinePoint } from './timelinePoint';
+import type { TemporalAnalysisStatus } from './temporalAnalysisStatus';
+import type { TemporalCheck } from './temporalCheck';
 
 export interface TemporalAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  reportedProgress: number;
-  visualProgress: string;
-  timeline: TimelinePoint[];
+  status: TemporalAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  progressRecordCount: number;
+  financialRecordCount: number;
+  imageWithDateCount: number;
+  /** @nullable */
+  firstEventDate: string | null;
+  /** @nullable */
+  lastEventDate: string | null;
+  /** @nullable */
+  firstProgressDate: string | null;
+  /** @nullable */
+  lastProgressDate: string | null;
+  progressReportCount: number;
+  /** @nullable */
+  elapsedDays: number | null;
+  /** @nullable */
+  progressChange: number | null;
+  /** @nullable */
+  progressRatePerDay: number | null;
+  checks: TemporalCheck[];
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
 }

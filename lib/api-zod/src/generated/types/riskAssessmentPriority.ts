@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority.
+ */
 export type RiskAssessmentPriority = typeof RiskAssessmentPriority[keyof typeof RiskAssessmentPriority];
 
 

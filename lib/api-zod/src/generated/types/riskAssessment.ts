@@ -8,12 +8,25 @@
 import type { RiskAssessmentPriority } from './riskAssessmentPriority';
 import type { RiskAssessmentWeights } from './riskAssessmentWeights';
 import type { SignalScore } from './signalScore';
+import type { VerificationPriorityDrivers } from './verificationPriorityDrivers';
+import type { WhyTrailEntry } from './whyTrailEntry';
 
 export interface RiskAssessment {
   score: number;
+  /** The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority. */
   priority: RiskAssessmentPriority;
+  /** A passthrough of the evidence fusion's overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence. */
+  confidence: number;
+  /** The single most salient evidence-backed finding, or an honest statement that none exists / evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated. */
+  primaryFinding: string;
+  /** Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`. */
   reasons: string[];
+  /** The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens's triggered check, or the fusion engine's own evidence-coverage accounting. */
+  why: WhyTrailEntry[];
   recommendation: string;
   weights: RiskAssessmentWeights;
   components: SignalScore[];
+  drivers: VerificationPriorityDrivers;
+  methodology: string;
+  engineVersion: string;
 }

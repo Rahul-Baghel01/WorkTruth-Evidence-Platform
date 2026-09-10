@@ -5,11 +5,27 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
-import type { EvidenceImage } from './evidenceImage';
+import type { VisualAnalysisStatus } from './visualAnalysisStatus';
+import type { VisualCheck } from './visualCheck';
 
 export interface VisualAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  images: EvidenceImage[];
+  status: VisualAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  imageCount: number;
+  datedImageCount: number;
+  undatedImageCount: number;
+  /** @nullable */
+  earliestCapturedAt: string | null;
+  /** @nullable */
+  latestCapturedAt: string | null;
+  checks: VisualCheck[];
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
 }

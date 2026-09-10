@@ -5,12 +5,28 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
+import type { TextAnalysisStatus } from './textAnalysisStatus';
+import type { TextCheck } from './textCheck';
+import type { TextPeerGroup } from './textPeerGroup';
 
 export interface TextAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  current: string;
-  similar: string;
-  similarity: number;
+  status: TextAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  descriptionLength: number;
+  tokenCount: number;
+  categoryKeywordsAvailable: boolean;
+  categoryMatchCount: number;
+  peerGroup: TextPeerGroup;
+  checks: TextCheck[];
+  reasons: string[];
+  /** The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model). */
+  method: string;
+  engineVersion: string;
+  updatedAt: string;
 }

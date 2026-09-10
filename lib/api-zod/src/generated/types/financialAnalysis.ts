@@ -5,15 +5,34 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
-import type { PeerPoint } from './peerPoint';
+import type { FinancialAnalysisEvidenceLevel } from './financialAnalysisEvidenceLevel';
+import type { FinancialAnalysisStatus } from './financialAnalysisStatus';
+import type { FinancialCheck } from './financialCheck';
+import type { FinancialPeerGroup } from './financialPeerGroup';
 
 export interface FinancialAnalysis {
-  sanction: number;
-  expenditure: number;
-  benchmark: number;
-  deviation: number;
-  score: number;
-  status: string;
-  explanation: string;
-  peers: PeerPoint[];
+  /** NONE - no usable financial data. BASIC - only summary sanction/expenditure. DETAILED - itemized financial_records ledger available. */
+  evidenceLevel: FinancialAnalysisEvidenceLevel;
+  status: FinancialAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  /** @nullable */
+  sanction: number | null;
+  /** @nullable */
+  expenditure: number | null;
+  /** @nullable */
+  paymentTotal: number | null;
+  /** @nullable */
+  expenditureRatio: number | null;
+  peerGroup: FinancialPeerGroup;
+  checks: FinancialCheck[];
+  reasons: string[];
+  recordCount: number;
+  engineVersion: string;
+  updatedAt: string;
 }

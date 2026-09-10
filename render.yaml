@@ -1,0 +1,68 @@
+# Render Blueprint for WorkTruth. See DEPLOYMENT.md for the full walkthrough,
+# including the values you must fill in by hand (marked `sync: false`) once the
+# service URLs exist.
+#
+# Apply with: Render Dashboard -> New -> Blueprint -> point at this repo.
+
+databases:
+  - name: worktruth-db
+    databaseName: worktruth
+    user: worktruth
+    plan: free # free Postgres is deleted after 30 days — upgrade before real use
+
+services:
+  # ------------------------------------------------------------------ API ----
+  - type: web
+    name: worktruth-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build:api
+    startCommand: pnpm run start:api
+    healthCheckPath: /api/healthz
+    disk:
+      name: worktruth-evidence
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: worktruth-db
+          property: connectionString
+      - key: EVIDENCE_UPLOAD_DIR
+        value: /var/data/uploads
+      # The frontend's public origin. Fill in after the static site is created
+      # (e.g. https://worktruth-web.onrender.com). Comma-separate for several.
+      - key: CORS_ORIGIN
+        sync: false
+      # Officer login. Set real values; never commit them.
+      - key: SEED_OFFICER_EMAIL
+        sync: false
+      - key: SEED_OFFICER_PASSWORD
+        sync: false
+      - key: SEED_OFFICER_NAME
+        value: Duty Officer
+      # SEED_DEMO_DATA is intentionally omitted: with NODE_ENV=production the
+      # demo projects are not auto-seeded. Add it set to "true" only if you
+      # want this database populated with the 20-project demo dataset.
+
+  # ------------------------------------------------------------- Frontend ----
+  - type: web
+    name: worktruth-web
+    runtime: static
+    rootDir: .
+    buildCommand: pnpm install --frozen-lockfile && pnpm run build:frontend
+    staticPublishPath: artifacts/worktruth/dist/public
+    routes:
+      # SPA fallback — client-side routes (/dashboard, /projects/:id, …) must
+      # all serve index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # The API's public origin, e.g. https://worktruth-api.onrender.com
+      # (build-time; inlined into the bundle). Fill in after the API exists.
+      - key: VITE_API_BASE_URL
+        sync: false

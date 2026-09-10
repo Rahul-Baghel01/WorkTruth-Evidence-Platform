@@ -40,55 +40,74 @@ import {
   getGetDashboardActivityQueryKey,
   getGetDashboardStatsQueryKey,
   getGetFinancialAnalysisQueryKey,
+  getGetFusionAnalysisQueryKey,
   getGetGeoAnalysisQueryKey,
+  getGetInconsistenciesQueryKey,
   getGetInvestigationQueryKey,
   getGetProjectAnalysisQueryKey,
+  getGetProjectImageFileUrl,
   getGetProjectQueryKey,
   getGetProjectRiskQueryKey,
+  getGetSessionQueryKey,
   getGetTemporalAnalysisQueryKey,
   getGetTextAnalysisQueryKey,
   getGetVisualAnalysisQueryKey,
+  getListProgressRecordsQueryKey,
+  getListProjectImagesQueryKey,
   getListProjectsQueryKey,
+  uploadProjectImage,
   useAnalyzeProject,
+  useCreateProgressRecord,
   useCreateProject,
+  useDeleteProjectImage,
   useGetDashboardActivity,
   useGetDashboardStats,
   useGetFinancialAnalysis,
+  useGetFusionAnalysis,
   useGetGeoAnalysis,
+  useGetInconsistencies,
   useGetInvestigation,
   useGetProject,
   useGetProjectAnalysis,
   useGetProjectRisk,
+  useGetSession,
   useGetTemporalAnalysis,
   useGetTextAnalysis,
   useGetVisualAnalysis,
+  useListProgressRecords,
+  useListProjectImages,
   useListProjects,
   useLogin,
   useUpdateInvestigation,
   useUpdateProject,
   useUploadProjects,
 } from '@workspace/api-client-react';
-import type { Project, ProjectPriority, UploadResult } from '@workspace/api-client-react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { EvidenceImage, Project, ProjectPriority, UploadResult, VisualAnalysis } from '@workspace/api-client-react';
 import {
   ActivityList,
   Card,
   DataStamp,
   EmptyState,
   ErrorState,
+  FusionPanel,
+  InconsistencyPanel,
   MetricCard,
   MiniBars,
   PriorityBadge,
   ProjectRow,
-  RiskReasons,
   RiskRing,
   Shell,
   ScoreBar,
   SectionHeading,
   Skeleton,
   StatusPill,
+  WhyTrail,
   cn,
   compactMoney,
   dateLabel,
+  firstName,
+  initials,
   money,
   priorityTone,
 } from '@/components/worktruth';
@@ -149,21 +168,24 @@ function PublicLandingHeader() { return <header className="landing-nav"><Link hr
 
 export function LoginPage() {
   const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const login = useLogin();
-  const [email, setEmail] = useState('ananya.rao@district.gov.in');
-  const [password, setPassword] = useState('demo-officer');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const submit = (event: React.FormEvent) => { event.preventDefault(); setError(''); login.mutate({ data: { email, password } }, { onSuccess: (session) => { sessionStorage.setItem('worktruth-session', session.token); setLocation('/dashboard'); }, onError: () => setError('The demo officer credentials were not accepted. Please try again.') }); };
-  return <div className="login-page"><div className="login-aside"><Link href="/" className="brand-link" data-testid="link-login-brand"><WorkTruthLoginMark /></Link><div className="login-quote"><span className="eyebrow">OFFICER WORKSPACE</span><h1>Good decisions<br />need <em>good records.</em></h1><p>Open a calm, explainable view of every project that needs your attention.</p></div><div className="login-aside-foot"><span>WorkTruth / Evidence integrity platform</span><span>v0.9.4 · Demo environment</span></div></div><div className="login-panel"><div className="login-panel-inner"><div className="mobile-login-brand"><WorkTruthLoginMark /></div><div className="login-kicker">SECURE OFFICER ACCESS</div><h2>Welcome back, Ananya.</h2><p className="login-description">Sign in to continue to your district evidence desk.</p><form onSubmit={submit} className="login-form"><label>Email address<input data-testid="input-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label><label>Password<div className="password-wrap"><input data-testid="input-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /><LockKeyhole size={15} /></div></label>{error && <div className="form-error"><AlertCircle size={15} />{error}</div>}<button data-testid="button-login" className="button button-dark button-submit" type="submit" disabled={login.isPending}>{login.isPending ? 'Verifying access…' : 'Enter workspace'}<ArrowRight size={16} /></button></form><div className="demo-note"><Sparkles size={15} /><div><strong>Demo officer access</strong><span>Credentials are pre-filled for this workspace.</span></div></div><p className="login-legal">By continuing, you acknowledge that WorkTruth is a decision-support system. Final verification remains with the authorised officer.</p></div></div></div>;
+  const submit = (event: React.FormEvent) => { event.preventDefault(); setError(''); login.mutate({ data: { email, password } }, { onSuccess: () => { queryClient.invalidateQueries({ queryKey: getGetSessionQueryKey() }); setLocation('/dashboard'); }, onError: () => setError('That email or password was not accepted. Please try again.') }); };
+  return <div className="login-page"><div className="login-aside"><Link href="/" className="brand-link" data-testid="link-login-brand"><WorkTruthLoginMark /></Link><div className="login-quote"><span className="eyebrow">OFFICER WORKSPACE</span><h1>Good decisions<br />need <em>good records.</em></h1><p>Open a calm, explainable view of every project that needs your attention.</p></div><div className="login-aside-foot"><span>WorkTruth / Evidence integrity platform</span><span>v0.9.4</span></div></div><div className="login-panel"><div className="login-panel-inner"><div className="mobile-login-brand"><WorkTruthLoginMark /></div><div className="login-kicker">SECURE OFFICER ACCESS</div><h2>Welcome back.</h2><p className="login-description">Sign in to continue to your district evidence desk.</p><form onSubmit={submit} className="login-form"><label>Email address<input data-testid="input-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required /></label><label>Password<div className="password-wrap"><input data-testid="input-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required /><LockKeyhole size={15} /></div></label>{error && <div className="form-error"><AlertCircle size={15} />{error}</div>}<button data-testid="button-login" className="button button-dark button-submit" type="submit" disabled={login.isPending}>{login.isPending ? 'Verifying access…' : 'Enter workspace'}<ArrowRight size={16} /></button></form><div className="demo-note"><Sparkles size={15} /><div><strong>Officer account required</strong><span>Sign in with the account issued by your administrator.</span></div></div><p className="login-legal">By continuing, you acknowledge that WorkTruth is a decision-support system. Final verification remains with the authorised officer.</p></div></div></div>;
 }
 function WorkTruthLoginMark() { return <span className="login-mark"><span className="brand-cross"><i /><i /></span><span>WORKTRUTH</span></span>; }
 
 export function DashboardPage() {
   const [, setLocation] = useLocation();
+  const sessionQuery = useGetSession({ query: { queryKey: getGetSessionQueryKey() } });
   const statsQuery = useGetDashboardStats({ query: { queryKey: getGetDashboardStatsQueryKey() } });
   const activityQuery = useGetDashboardActivity({ query: { queryKey: getGetDashboardActivityQueryKey() } });
   const stats = statsQuery.data;
-  return <ShellPage><PageIntro eyebrow="FIELD DESK / OVERVIEW" title="Good morning, Ananya." description="Here is the evidence picture across your MPLADS portfolio. Start with what changed, then work the queue." action={<Link href="/projects" className="button button-dark" data-testid="link-open-queue">Open verification queue <ArrowRight size={16} /></Link>} />{statsQuery.isLoading ? <DashboardSkeleton /> : statsQuery.isError ? <ErrorState onRetry={() => statsQuery.refetch()} /> : <><div className="metric-grid fade-up fade-up-delay-1"><MetricCard label="Projects monitored" value={stats?.totalProjects ?? 0} detail="Across 12 districts" icon={Layers} tone="navy" /><MetricCard label="Verification required" value={stats?.verificationRequired ?? 0} detail="Needs officer attention" icon={ShieldAlert} tone="red" /><MetricCard label="Average evidence" value={`${Math.round(stats?.averageEvidenceQuality ?? 0)}%`} detail="Portfolio confidence" icon={Gauge} tone="gold" trend="up" /><MetricCard label="Critical priority" value={stats?.criticalRisk ?? 0} detail="Immediate review" icon={AlertCircle} tone="red" /></div><div className="dashboard-grid fade-up fade-up-delay-2"><Card className="trend-card"><SectionHeading eyebrow="PORTFOLIO SIGNAL" title="Risk movement" detail="Projects by verification priority, last six months" action={<div className="chart-legend"><span><i className="legend-navy" />Low</span><span><i className="legend-gold" />Moderate</span><span><i className="legend-red" />High</span><span><i className="legend-green" />Critical</span></div>} />{stats?.trend?.length ? <LineChart points={stats.trend.map((point) => ({ label: point.month, values: [point.low, point.moderate, point.high, point.critical] }))} /> : <EmptyState icon={BarChart2} title="Trend is being prepared" description="Monthly portfolio history will appear after the first sync." />}</Card><Card className="distribution-card"><SectionHeading eyebrow="CURRENT MIX" title="Risk distribution" detail="A portfolio view, not a verdict" /><DonutChart points={stats?.riskDistribution} /></Card></div><div className="dashboard-grid lower-grid fade-up fade-up-delay-3"><Card className="flagged-card"><SectionHeading eyebrow="ATTENTION FIRST" title="Flagged projects" detail="Sorted by verification priority" action={<Link href="/projects" className="text-link" data-testid="link-view-all-flagged">View all <ArrowRight size={14} /></Link>} />{stats?.flaggedProjects?.length ? <div className="project-list">{stats.flaggedProjects.slice(0, 5).map((project) => <ProjectRow key={project.id} project={project} onSelect={() => setLocation(`/projects/${project.id}`)} />)}</div> : <EmptyState icon={CheckCircle2} title="No flagged projects" description="The portfolio is clear for now." />}</Card><Card className="activity-card"><SectionHeading eyebrow="AUDIT TRAIL" title="Recent activity" /><ActivityList items={activityQuery.data} compact /></Card></div></>}</ShellPage>;
+  const greetingName = firstName(sessionQuery.data?.user.name);
+  return <ShellPage><PageIntro eyebrow="FIELD DESK / OVERVIEW" title={greetingName ? `Good morning, ${greetingName}.` : 'Good morning.'} description="Here is the evidence picture across your MPLADS portfolio. Start with what changed, then work the queue." action={<Link href="/projects" className="button button-dark" data-testid="link-open-queue">Open verification queue <ArrowRight size={16} /></Link>} />{statsQuery.isLoading ? <DashboardSkeleton /> : statsQuery.isError ? <ErrorState onRetry={() => statsQuery.refetch()} /> : <><div className="metric-grid fade-up fade-up-delay-1"><MetricCard label="Projects monitored" value={stats?.totalProjects ?? 0} detail="Across 12 districts" icon={Layers} tone="navy" /><MetricCard label="Verification required" value={stats?.verificationRequired ?? 0} detail="Needs officer attention" icon={ShieldAlert} tone="red" /><MetricCard label="Average evidence" value={`${Math.round(stats?.averageEvidenceQuality ?? 0)}%`} detail="Portfolio confidence" icon={Gauge} tone="gold" trend="up" /><MetricCard label="Critical priority" value={stats?.criticalRisk ?? 0} detail="Immediate review" icon={AlertCircle} tone="red" /></div><div className="dashboard-grid fade-up fade-up-delay-2"><Card className="trend-card"><SectionHeading eyebrow="PORTFOLIO SIGNAL" title="Risk movement" detail="Projects by verification priority, last six months" action={<div className="chart-legend"><span><i className="legend-navy" />Low</span><span><i className="legend-gold" />Moderate</span><span><i className="legend-red" />High</span><span><i className="legend-green" />Critical</span></div>} />{stats?.trend?.length ? <LineChart points={stats.trend.map((point) => ({ label: point.month, values: [point.low, point.moderate, point.high, point.critical] }))} /> : <EmptyState icon={BarChart2} title="Trend is being prepared" description="Monthly portfolio history will appear after the first sync." />}</Card><Card className="distribution-card"><SectionHeading eyebrow="CURRENT MIX" title="Risk distribution" detail="A portfolio view, not a verdict" /><DonutChart points={stats?.riskDistribution} /></Card></div><div className="dashboard-grid lower-grid fade-up fade-up-delay-3"><Card className="flagged-card"><SectionHeading eyebrow="ATTENTION FIRST" title="Flagged projects" detail="Sorted by verification priority" action={<Link href="/projects" className="text-link" data-testid="link-view-all-flagged">View all <ArrowRight size={14} /></Link>} />{stats?.flaggedProjects?.length ? <div className="project-list">{stats.flaggedProjects.slice(0, 5).map((project) => <ProjectRow key={project.id} project={project} onSelect={() => setLocation(`/projects/${project.id}`)} />)}</div> : <EmptyState icon={CheckCircle2} title="No flagged projects" description="The portfolio is clear for now." />}</Card><Card className="activity-card"><SectionHeading eyebrow="AUDIT TRAIL" title="Recent activity" /><ActivityList items={activityQuery.data} compact /></Card></div></>}</ShellPage>;
 }
 
 function DashboardSkeleton() { return <><div className="metric-grid"><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /><Skeleton className="h-32" /></div><div className="dashboard-grid"><Skeleton className="h-80" /><Skeleton className="h-80" /></div></>; }
@@ -184,7 +206,7 @@ export function ProjectsPage() {
   const districts = projectsQuery.data?.districts ?? [];
   const categories = projectsQuery.data?.categories ?? [];
   const submitCreate = (event: React.FormEvent) => { event.preventDefault(); createProject.mutate({ data: { ...form, sanctionAmount: Number(form.sanctionAmount), expenditure: Number(form.expenditure), progress: Number(form.progress), latitude: Number(form.latitude), longitude: Number(form.longitude) } }, { onSuccess: (project) => { setShowCreate(false); setLocation(`/projects/${project.id}`); projectsQuery.refetch(); } }); };
-  return <ShellPage><PageIntro eyebrow="VERIFICATION QUEUE" title="Projects that need proof." description="A ranked working list built from financial, visual, geographic, temporal, and text signals." action={<button className="button button-dark" data-testid="button-add-project" onClick={() => setShowCreate(true)}><Plus size={16} /> Add project</button>} /><Card className="queue-toolbar"><div className="search-field"><Search size={17} /><input data-testid="input-project-search" type="search" placeholder="Search project, district, or ID…" value={search} onChange={(e) => setSearch(e.target.value)} /></div><div className="toolbar-divider" /><div className="filter-label"><Filter size={15} /> Filters</div><select data-testid="select-priority-filter" value={priority} onChange={(e) => setPriority(e.target.value)}><option value="">All priorities</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MODERATE">Moderate</option><option value="LOW">Low</option></select><select data-testid="select-district-filter" value={district} onChange={(e) => setDistrict(e.target.value)}><option value="">All districts</option>{districts.map((item) => <option value={item} key={item}>{item}</option>)}</select><select data-testid="select-category-filter" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{categories.map((item) => <option value={item} key={item}>{item}</option>)}</select><select data-testid="select-sort-projects" value={sort} onChange={(e) => setSort(e.target.value)}><option value="priority">Sort: priority</option><option value="financial">Sort: financial</option><option value="visual">Sort: visual</option><option value="evidence">Sort: evidence</option><option value="date">Sort: date</option></select></Card>{projectsQuery.isLoading ? <div className="queue-list">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24" />)}</div> : projectsQuery.isError ? <ErrorState onRetry={() => projectsQuery.refetch()} /> : projectsQuery.data?.items?.length ? <div className="queue-wrap"><div className="queue-head"><span>Project / location</span><span>Category</span><span>Evidence quality</span><span>Priority</span><span>Primary signal</span></div><div className="queue-list">{projectsQuery.data.items.map((project) => <ProjectRow key={project.id} project={project} onSelect={() => setLocation(`/projects/${project.id}`)} />)}</div><div className="queue-foot"><span>Showing {projectsQuery.data.items.length} of {projectsQuery.data.total} projects</span><button className="button button-quiet" data-testid="button-export-queue"><Download size={14} /> Export review list</button></div></div> : <EmptyState icon={Search} title="No projects match those filters" description="Try clearing a filter or search for a project ID." action={<button className="button button-secondary" data-testid="button-clear-filters" onClick={() => { setSearch(''); setPriority(''); setDistrict(''); setCategory(''); }}>Clear filters</button>} />}{showCreate && <CreateProjectModal form={form} setForm={setForm} pending={createProject.isPending} onClose={() => setShowCreate(false)} onSubmit={submitCreate} />}</ShellPage>;
+  return <ShellPage><PageIntro eyebrow="VERIFICATION QUEUE" title="Projects that need proof." description="A ranked working list built from financial, visual, geographic, temporal, and text signals." action={<button className="button button-dark" data-testid="button-add-project" onClick={() => setShowCreate(true)}><Plus size={16} /> Add project</button>} /><Card className="queue-toolbar"><div className="search-field"><Search size={17} /><input data-testid="input-project-search" type="search" placeholder="Search project, district, or ID…" value={search} onChange={(e) => setSearch(e.target.value)} /></div><div className="toolbar-divider" /><div className="filter-label"><Filter size={15} /> Filters</div><select data-testid="select-priority-filter" value={priority} onChange={(e) => setPriority(e.target.value)}><option value="">All priorities</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MODERATE">Moderate</option><option value="LOW">Low</option></select><select data-testid="select-district-filter" value={district} onChange={(e) => setDistrict(e.target.value)}><option value="">All districts</option>{districts.map((item) => <option value={item} key={item}>{item}</option>)}</select><select data-testid="select-category-filter" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option>{categories.map((item) => <option value={item} key={item}>{item}</option>)}</select><select data-testid="select-sort-projects" value={sort} onChange={(e) => setSort(e.target.value)}><option value="priority">Sort: priority</option><option value="financial">Sort: financial</option><option value="visual">Sort: visual</option><option value="evidence">Sort: evidence</option><option value="date">Sort: date</option></select></Card>{projectsQuery.isLoading ? <div className="queue-list">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-24" />)}</div> : projectsQuery.isError ? <ErrorState onRetry={() => projectsQuery.refetch()} /> : projectsQuery.data?.items?.length ? <div className="queue-wrap"><div className="queue-head"><span>Project / location</span><span>Category</span><span>Evidence quality</span><span>Priority</span><span>Primary finding</span></div><div className="queue-list">{projectsQuery.data.items.map((project) => <ProjectRow key={project.id} project={project} onSelect={() => setLocation(`/projects/${project.id}`)} />)}</div><div className="queue-foot"><span>Showing {projectsQuery.data.items.length} of {projectsQuery.data.total} projects</span><button className="button button-quiet" data-testid="button-export-queue"><Download size={14} /> Export review list</button></div></div> : <EmptyState icon={Search} title="No projects match those filters" description="Try clearing a filter or search for a project ID." action={<button className="button button-secondary" data-testid="button-clear-filters" onClick={() => { setSearch(''); setPriority(''); setDistrict(''); setCategory(''); }}>Clear filters</button>} />}{showCreate && <CreateProjectModal form={form} setForm={setForm} pending={createProject.isPending} onClose={() => setShowCreate(false)} onSubmit={submitCreate} />}</ShellPage>;
 }
 
 function CreateProjectModal({ form, setForm, pending, onClose, onSubmit }: { form: Record<string, string>; setForm: React.Dispatch<React.SetStateAction<Record<string, string>>>; pending: boolean; onClose: () => void; onSubmit: (event: React.FormEvent) => void }) {
@@ -204,6 +226,8 @@ export function ProjectDetailPage() {
   const textQuery = useGetTextAnalysis(id, { query: { queryKey: getGetTextAnalysisQueryKey(id) } });
   const geoQuery = useGetGeoAnalysis(id, { query: { queryKey: getGetGeoAnalysisQueryKey(id) } });
   const temporalQuery = useGetTemporalAnalysis(id, { query: { queryKey: getGetTemporalAnalysisQueryKey(id) } });
+  const fusionQuery = useGetFusionAnalysis(id, { query: { queryKey: getGetFusionAnalysisQueryKey(id) } });
+  const inconsistenciesQuery = useGetInconsistencies(id, { query: { queryKey: getGetInconsistenciesQueryKey(id) } });
   const investigationQuery = useGetInvestigation(id, { query: { queryKey: getGetInvestigationQueryKey(id) } });
   const analyze = useAnalyzeProject();
   const updateProject = useUpdateProject();
@@ -220,25 +244,204 @@ export function ProjectDetailPage() {
   const text = textQuery.data ?? analysis?.text;
   const geo = geoQuery.data ?? analysis?.geo;
   const temporal = temporalQuery.data ?? analysis?.temporal;
+  const fusion = fusionQuery.data ?? analysis?.fusion;
+  const inconsistencies = inconsistenciesQuery.data ?? analysis?.inconsistencies;
   const investigation = investigationQuery.data ?? project?.investigation;
   const saveInvestigation = () => { updateInvestigation.mutate({ id, data: { status, notes, decision } }, { onSuccess: () => { setSaved(true); investigationQuery.refetch(); setTimeout(() => setSaved(false), 2200); } }); };
-  const runAnalysis = () => analyze.mutate({ id }, { onSuccess: () => { analysisQuery.refetch(); riskQuery.refetch(); financialQuery.refetch(); visualQuery.refetch(); textQuery.refetch(); geoQuery.refetch(); temporalQuery.refetch(); } });
+  const runAnalysis = () => analyze.mutate({ id }, { onSuccess: () => { analysisQuery.refetch(); riskQuery.refetch(); financialQuery.refetch(); visualQuery.refetch(); textQuery.refetch(); geoQuery.refetch(); temporalQuery.refetch(); fusionQuery.refetch(); inconsistenciesQuery.refetch(); } });
   if (projectQuery.isLoading) return <ShellPage><div className="detail-loading"><Skeleton className="h-8 w-48" /><Skeleton className="h-24" /><div className="detail-grid"><Skeleton className="h-96" /><Skeleton className="h-96" /></div></div></ShellPage>;
   if (projectQuery.isError || !project) return <ShellPage><ErrorState message="This project record could not be found." onRetry={() => projectQuery.refetch()} /></ShellPage>;
-  return <ShellPage><div className="detail-back"><button className="text-link" data-testid="button-back-projects" onClick={() => setLocation('/projects')}><ArrowLeft size={15} /> Back to queue</button><DataStamp>{analysis?.updatedAt ? `Analysed ${dateLabel(analysis.updatedAt)}` : 'Analysis not run'}</DataStamp></div><div className="detail-hero fade-up"><div><div className="eyebrow">{project.id} · {project.category}</div><h1 className="display-title">{project.name}</h1><p className="intro-copy"><MapPin size={15} /> {project.location || project.district}, {project.state} <span className="inline-sep">·</span> {project.contractor || 'Contractor not recorded'}</p></div><div className="detail-actions"><button className="button button-secondary" data-testid="button-run-analysis" onClick={runAnalysis} disabled={analyze.isPending}><RefreshCw size={15} className={analyze.isPending ? 'spin' : ''} /> {analyze.isPending ? 'Analysing…' : 'Re-run analysis'}</button><StatusPill status={investigation?.status} /></div></div><div className="detail-grid detail-top-grid fade-up fade-up-delay-1"><Card className="risk-summary-card"><div className="card-overline"><span>EXPLAINABLE FUSION</span><Info size={14} /></div><div className="risk-summary-main"><RiskRing score={risk?.score ?? 0} priority={risk?.priority} /><div><PriorityBadge priority={risk?.priority} /><h2>{risk?.recommendation || 'Review the available evidence before deciding.'}</h2><p>Priority is a routing signal, not a finding. The officer makes the final determination.</p></div></div><RiskReasons risk={risk} /><div className="weights-row">{risk?.components?.slice(0, 4).map((component) => <div key={component.label}><span>{component.label}</span><b>{Math.round(component.contribution)}%</b><ScoreBar value={component.score} /></div>)}</div></Card><Card className="project-facts-card"><div className="card-overline"><span>PROJECT RECORD</span><FileText size={14} /></div><div className="facts-grid"><Fact label="Sanction amount" value={money(project.sanctionAmount)} /><Fact label="Expenditure" value={money(project.expenditure)} /><Fact label="Reported progress" value={`${project.progress}%`} /><Fact label="Evidence quality" value={`${Math.round(project.evidenceQuality)} / 100`} /><Fact label="Start date" value={dateLabel(project.startDate)} /><Fact label="Expected completion" value={dateLabel(project.expectedCompletion)} /></div><div className="project-description">{project.description}</div></Card></div><div className="section-rule"><span>Five lenses on the record</span><span>Confidence is cumulative, not automatic</span></div><div className="evidence-grid fade-up fade-up-delay-2"><EvidenceLens icon={BarChart2} label="Financial" status={financial?.status} score={financial?.score} summary={financial?.explanation}><div className="lens-numbers"><div><span>Sanction</span><b>{compactMoney(financial?.sanction)}</b></div><div><span>Spent</span><b>{compactMoney(financial?.expenditure)}</b></div><div><span>Deviation</span><b className={Number(financial?.deviation) > 0 ? 'text-danger' : ''}>{financial?.deviation ?? 0}%</b></div></div></EvidenceLens><EvidenceLens icon={ImageIcon} label="Visual" status={visual?.status} score={visual?.score} summary={visual?.explanation}><div className="evidence-images">{visual?.images?.slice(0, 2).map((image) => <div className="evidence-thumb" key={image.id}>{image.imageUrl ? <img src={image.imageUrl} alt={image.label} /> : <div className="thumb-placeholder"><ImageIcon size={19} /></div>}<span>{image.label}</span></div>)}</div></EvidenceLens><EvidenceLens icon={FileText} label="Text consistency" status={text?.status} score={text?.score} summary={text?.explanation}><div className="text-match"><span className="match-quote">“</span><p>{text?.current || 'No project description was returned.'}</p><div className="match-footer"><span>Similarity to peer records</span><b>{text?.similarity ?? 0}%</b></div></div></EvidenceLens><EvidenceLens icon={MapPin} label="Geographic" status={geo?.status} score={geo?.score} summary={geo?.explanation}><div className="geo-mini"><div className="geo-points"><span className="geo-declared" /><span className="geo-route" /><span className="geo-photo" /></div><div><span>Declared → photograph</span><b>{geo?.distanceKm ?? 0} km variance</b></div></div></EvidenceLens><EvidenceLens icon={Waypoints} label="Temporal" status={temporal?.status} score={temporal?.score} summary={temporal?.explanation}><div className="timeline-mini">{temporal?.timeline?.slice(0, 4).map((point) => <div key={point.label}><span>{point.label}</span><i style={{ width: `${point.progress}%` }} /><b>{point.progress}%</b></div>)}</div></EvidenceLens></div><div className="investigation-area fade-up fade-up-delay-3"><Card className="workflow-card"><SectionHeading eyebrow="OFFICER WORKFLOW" title="Leave the next person a clear record." detail="Your decision and notes become part of the audit trail." action={saved ? <span className="saved-label"><Check size={14} /> Saved</span> : undefined} /><div className="workflow-fields"><label>Review status<select data-testid="select-investigation-status" value={status} onChange={(e) => setStatus(e.target.value)}><option>Pending Review</option><option>Under Investigation</option><option>Needs Field Visit</option><option>Verified</option><option>Resolved</option></select></label><label>Decision<textarea data-testid="textarea-decision" value={decision || investigation?.decision || ''} onChange={(e) => setDecision(e.target.value)} placeholder="What is the next defensible action?" /></label><label>Officer notes<textarea data-testid="textarea-notes" value={notes || investigation?.notes || ''} onChange={(e) => setNotes(e.target.value)} placeholder="Capture context, requests, and what to verify on the ground." /></label></div><button className="button button-dark" data-testid="button-save-investigation" onClick={saveInvestigation} disabled={updateInvestigation.isPending}>{updateInvestigation.isPending ? 'Saving…' : 'Save investigation record'} <Send size={15} /></button></Card><Card className="history-card"><SectionHeading eyebrow="AUDIT TRAIL" title="Investigation history" />{investigation?.history?.length ? <div className="history-list">{investigation.history.map((item) => <div className="history-item" key={item.id}><div className="history-line"><span className="history-dot" /><span /></div><div><div className="history-meta"><StatusPill status={item.status} /><time>{item.time}</time></div><p>{item.note}</p><span className="history-officer">{item.officer}</span></div></div>)}</div> : <EmptyState icon={NotebookPen} title="No history yet" description="Your first investigation update will start the audit trail." />}</Card></div></ShellPage>;
+  return <ShellPage><div className="detail-back"><button className="text-link" data-testid="button-back-projects" onClick={() => setLocation('/projects')}><ArrowLeft size={15} /> Back to queue</button><DataStamp>{analysis?.updatedAt ? `Analysed ${dateLabel(analysis.updatedAt)}` : 'Analysis not run'}</DataStamp></div><div className="detail-hero fade-up"><div><div className="eyebrow">{project.id} · {project.category}</div><h1 className="display-title">{project.name}</h1><p className="intro-copy"><MapPin size={15} /> {project.location || project.district}, {project.state} <span className="inline-sep">·</span> {project.contractor || 'Contractor not recorded'}</p></div><div className="detail-actions"><button className="button button-secondary" data-testid="button-run-analysis" onClick={runAnalysis} disabled={analyze.isPending}><RefreshCw size={15} className={analyze.isPending ? 'spin' : ''} /> {analyze.isPending ? 'Analysing…' : 'Re-run analysis'}</button><StatusPill status={investigation?.status} /></div></div><div className="detail-grid detail-top-grid fade-up fade-up-delay-1"><Card className="risk-summary-card"><div className="card-overline"><span>VERIFICATION PRIORITY</span><Info size={14} /></div><div className="risk-summary-main"><RiskRing score={risk?.score ?? 0} priority={risk?.priority} /><div><PriorityBadge priority={risk?.priority} /><h2>{risk?.recommendation || 'Review the available evidence before deciding.'}</h2><p>Verification Priority is a routing signal derived from evidence — not a finding of fraud. The officer makes the final determination.</p></div></div><div className="risk-stat-row"><div><span>Evidence confidence</span><b>{risk?.confidence != null ? `${Math.round(risk.confidence * 100)}%` : '—'}</b></div><div><span>Dimensions with evidence</span><b>{risk?.drivers ? `${risk.drivers.availableDimensions} of 5` : '—'}</b></div><div><span>Cross-evidence findings</span><b>{risk?.drivers ? risk.drivers.criticalInconsistencies + risk.drivers.highInconsistencies + risk.drivers.moderateInconsistencies + risk.drivers.lowInconsistencies : '—'}</b></div></div><div className="why-trail-label">Why this priority?</div><WhyTrail entries={risk?.why} /><div className="why-trail-label">Each lens's share of the verification signal — not its own score</div><div className="weights-row">{risk?.components?.map((component) => <div key={component.label}><span>{component.label}</span><b>{component.evidenceSufficient === false ? '—' : `${Math.round(component.contribution)}%`}</b><ScoreBar value={component.evidenceSufficient === false ? 0 : component.contribution / 100} /></div>)}</div></Card><Card className="project-facts-card"><div className="card-overline"><span>PROJECT RECORD</span><FileText size={14} /></div><div className="facts-grid"><Fact label="Sanction amount" value={money(project.sanctionAmount)} /><Fact label="Expenditure" value={money(project.expenditure)} /><Fact label="Reported progress" value={`${project.progress}%`} /><Fact label="Evidence quality" value={`${Math.round(project.evidenceQuality)} / 100`} /><Fact label="Start date" value={dateLabel(project.startDate)} /><Fact label="Expected completion" value={dateLabel(project.expectedCompletion)} /></div><div className="project-description">{project.description}</div></Card></div><FusionPanel fusion={fusion} /><InconsistencyPanel inconsistencies={inconsistencies} /><div className="section-rule"><span>Five lenses on the record</span><span>Confidence is cumulative, not automatic</span></div><div className="evidence-grid fade-up fade-up-delay-2"><EvidenceLens icon={BarChart2} label="Financial" status={financial ? FINANCIAL_STATUS_LABEL[financial.status] ?? financial.status : undefined} score={financial?.score} summary={primaryLensSummary(financial?.checks, financial?.reasons)}><div className="lens-numbers"><div><span>Sanction</span><b>{financial?.sanction != null ? compactMoney(financial.sanction) : '—'}</b></div><div><span>Expenditure</span><b>{financial?.expenditure != null ? compactMoney(financial.expenditure) : '—'}</b></div><div><span>Confidence</span><b>{financial ? `${Math.round(financial.confidence * 100)}%` : '—'}</b></div><div><span>Peer group</span><b>{financial && financial.peerGroup.size > 0 ? `${financial.peerGroup.size} project${financial.peerGroup.size === 1 ? '' : 's'}` : 'None found'}</b></div></div>{primaryTriggeredCheck(financial?.checks)?.expected && <p className="lens-expected"><strong>Expected:</strong> {primaryTriggeredCheck(financial?.checks)!.expected}</p>}{financial && financial.reasons.length > 1 && <div className="reason-list">{financial.reasons.slice(1).map((reason, index) => <div key={`${reason}-${index}`} className="reason-row"><span className="reason-index">0{index + 1}</span><span>{reason}</span></div>)}</div>}</EvidenceLens><EvidenceLens icon={ImageIcon} label="Visual" status={visual ? VISUAL_STATUS_LABEL[visual.status] ?? visual.status : undefined} score={visual?.score} summary={primaryLensSummary(visual?.checks, visual?.reasons)}><div className="lens-numbers"><div><span>Images</span><b>{visual?.imageCount ?? 0}</b></div><div><span>Dated</span><b>{visual?.datedImageCount ?? 0}</b></div><div><span>Confidence</span><b>{visual ? `${Math.round(visual.confidence * 100)}%` : '—'}</b></div><div><span>Undated</span><b>{visual?.undatedImageCount ?? 0}</b></div></div><p className="lens-caveat">Detects exact/near-duplicate images and capture-date chronology only — it does not perform object or content recognition and cannot assess construction progress from image content.</p>{visual && visual.reasons.length > 1 && <div className="reason-list">{visual.reasons.slice(1).map((reason, index) => <div key={`${reason}-${index}`} className="reason-row"><span className="reason-index">0{index + 1}</span><span>{reason}</span></div>)}</div>}</EvidenceLens><EvidenceLens icon={FileText} label="Text consistency" status={text ? TEXT_STATUS_LABEL[text.status] ?? text.status : undefined} score={text?.score} summary={primaryLensSummary(text?.checks, text?.reasons)}><div className="text-match"><span className="match-quote">“</span><p>{project.description || 'No project description was returned.'}</p><div className="match-footer"><span>{text?.peerGroup?.topMatches?.[0] ? `Most similar: ${text.peerGroup.topMatches[0].projectId}` : 'Peer comparison'}</span><b>{text?.peerGroup?.topMatches?.[0] ? `${Math.round(text.peerGroup.topMatches[0].similarity * 100)}%` : '—'}</b></div></div>{text?.method && <p className="lens-caveat">Method: {text.method} — a deterministic keyword/statistics baseline, not a semantic or learned understanding of the text.</p>}{text && text.reasons.length > 1 && <div className="reason-list">{text.reasons.slice(1).map((reason, index) => <div key={`${reason}-${index}`} className="reason-row"><span className="reason-index">0{index + 1}</span><span>{reason}</span></div>)}</div>}</EvidenceLens><EvidenceLens icon={MapPin} label="Geographic" status={geo ? GEO_STATUS_LABEL[geo.status] ?? geo.status : undefined} score={geo?.score} summary={primaryLensSummary(geo?.checks, geo?.reasons)}><div className="lens-numbers"><div><span>Declared location</span><b>{geo?.declaredLatitude != null && geo?.declaredLongitude != null ? `${geo.declaredLatitude.toFixed(4)}, ${geo.declaredLongitude.toFixed(4)}` : '—'}</b></div><div><span>Valid GPS</span><b>{geo?.validGpsCount ?? 0} of {geo?.imageCount ?? 0}</b></div><div><span>Confidence</span><b>{geo ? `${Math.round(geo.confidence * 100)}%` : '—'}</b></div><div><span>Median distance</span><b>{geo?.medianDistanceMeters != null ? distanceLabel(geo.medianDistanceMeters) : '—'}</b></div></div>{geo?.status === 'INSUFFICIENT_EVIDENCE' && <p className="lens-caveat">Missing GPS metadata is reported as unavailable evidence, not as an anomaly.</p>}{geo && geo.reasons.length > 1 && <div className="reason-list">{geo.reasons.slice(1).map((reason, index) => <div key={`${reason}-${index}`} className="reason-row"><span className="reason-index">0{index + 1}</span><span>{reason}</span></div>)}</div>}</EvidenceLens><EvidenceLens icon={Waypoints} label="Temporal" status={temporal ? TEMPORAL_STATUS_LABEL[temporal.status] ?? temporal.status : undefined} score={temporal?.score} summary={primaryLensSummary(temporal?.checks, temporal?.reasons)}><div className="lens-numbers"><div><span>Progress reports</span><b>{temporal?.progressReportCount ?? 0}</b></div><div><span>Dated events</span><b>{temporal ? temporal.progressRecordCount + temporal.financialRecordCount + temporal.imageWithDateCount : 0}</b></div><div><span>Confidence</span><b>{temporal ? `${Math.round(temporal.confidence * 100)}%` : '—'}</b></div><div><span>Date range</span><b>{temporal?.firstEventDate && temporal?.lastEventDate ? `${temporal.firstEventDate} → ${temporal.lastEventDate}` : '—'}</b></div></div>{temporal && temporal.reasons.length > 1 && <div className="reason-list">{temporal.reasons.slice(1).map((reason, index) => <div key={`${reason}-${index}`} className="reason-row"><span className="reason-index">0{index + 1}</span><span>{reason}</span></div>)}</div>}</EvidenceLens></div><EvidenceImageGallery projectId={id} visual={visual} /><ProgressRecordsCard projectId={id} /><div className="investigation-area fade-up fade-up-delay-3"><Card className="workflow-card"><SectionHeading eyebrow="OFFICER WORKFLOW" title="Leave the next person a clear record." detail="Your decision and notes become part of the audit trail." action={saved ? <span className="saved-label"><Check size={14} /> Saved</span> : undefined} /><div className="workflow-fields"><label>Review status<select data-testid="select-investigation-status" value={status} onChange={(e) => setStatus(e.target.value)}><option>Pending Review</option><option>Under Investigation</option><option>Needs Field Visit</option><option>Verified</option><option>Resolved</option></select></label><label>Decision<textarea data-testid="textarea-decision" value={decision || investigation?.decision || ''} onChange={(e) => setDecision(e.target.value)} placeholder="What is the next defensible action?" /></label><label>Officer notes<textarea data-testid="textarea-notes" value={notes || investigation?.notes || ''} onChange={(e) => setNotes(e.target.value)} placeholder="Capture context, requests, and what to verify on the ground." /></label></div><button className="button button-dark" data-testid="button-save-investigation" onClick={saveInvestigation} disabled={updateInvestigation.isPending}>{updateInvestigation.isPending ? 'Saving…' : 'Save investigation record'} <Send size={15} /></button></Card><Card className="history-card"><SectionHeading eyebrow="AUDIT TRAIL" title="Investigation history" />{investigation?.history?.length ? <div className="history-list">{investigation.history.map((item) => <div className="history-item" key={item.id}><div className="history-line"><span className="history-dot" /><span /></div><div><div className="history-meta"><StatusPill status={item.status} /><time>{item.time}</time></div><p>{item.note}</p><span className="history-officer">{item.officer}</span></div></div>)}</div> : <EmptyState icon={NotebookPen} title="No history yet" description="Your first investigation update will start the audit trail." />}</Card></div></ShellPage>;
 }
 
 function Fact({ label, value }: { label: string; value: string }) { return <div className="fact"><span>{label}</span><strong>{value}</strong></div>; }
-function EvidenceLens({ icon: Icon, label, status, score, summary, children }: { icon: typeof BarChart2; label: string; status?: string; score?: number; summary?: string; children: React.ReactNode }) {
-  const percentage = (score ?? 0) <= 1 ? (score ?? 0) * 100 : (score ?? 0);
-  return <Card className="evidence-lens"><div className="lens-head"><div className="lens-icon"><Icon size={17} /></div><div><span className="lens-label">{label}</span><StatusPill status={status || 'Pending Review'} /></div><span className="lens-score">{Math.round(percentage)}%</span></div><p className="lens-explanation">{summary || 'Awaiting analysis for this evidence lens.'}</p>{children}</Card>;
+const FINANCIAL_STATUS_LABEL: Record<string, string> = {
+  INSUFFICIENT_EVIDENCE: 'Insufficient evidence',
+  WITHIN_EXPECTED_RANGE: 'Within expected range',
+  ANOMALY_DETECTED: 'Anomaly detected',
+};
+const GEO_STATUS_LABEL: Record<string, string> = {
+  INSUFFICIENT_EVIDENCE: 'Insufficient evidence',
+  LOCATION_CONSISTENT: 'Location consistent',
+  LOCATION_ANOMALY: 'Location anomaly',
+};
+const TEMPORAL_STATUS_LABEL: Record<string, string> = {
+  INSUFFICIENT_EVIDENCE: 'Insufficient evidence',
+  TEMPORALLY_CONSISTENT: 'Temporally consistent',
+  TEMPORAL_ANOMALY: 'Temporal anomaly',
+};
+const TEXT_STATUS_LABEL: Record<string, string> = {
+  INSUFFICIENT_EVIDENCE: 'Insufficient evidence',
+  CONSISTENT: 'Consistent',
+  POTENTIALLY_INCONSISTENT: 'Potentially inconsistent',
+  REQUIRES_VERIFICATION: 'Requires verification',
+};
+const VISUAL_STATUS_LABEL: Record<string, string> = {
+  INSUFFICIENT_EVIDENCE: 'Insufficient evidence',
+  CONSISTENT: 'Consistent',
+  REQUIRES_VERIFICATION: 'Requires verification',
+};
+function distanceLabel(meters: number): string {
+  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+}
+// The actual triggered (non-INFO) check, if any — used so each lens card's
+// primary explanation is the real finding, not a peer-group/evidence-quality
+// caveat that happens to sit first in `reasons` (P0-M explainability fix).
+function primaryTriggeredCheck<T extends { severity: string }>(checks: T[] | undefined): T | undefined {
+  return checks?.find((c) => c.severity !== 'INFO');
+}
+function primaryLensSummary(checks: Array<{ severity: string; message: string }> | undefined, reasons: string[] | undefined): string | undefined {
+  return primaryTriggeredCheck(checks)?.message ?? reasons?.[0];
+}
+function EvidenceLens({ icon: Icon, label, status, score, summary, children }: { icon: typeof BarChart2; label: string; status?: string; score?: number | null; summary?: string; children: React.ReactNode }) {
+  const hasScore = score !== null && score !== undefined;
+  const percentage = hasScore ? (score <= 1 ? score * 100 : score) : null;
+  return <Card className="evidence-lens"><div className="lens-head"><div className="lens-icon"><Icon size={17} /></div><div><span className="lens-label">{label}</span><StatusPill status={status || 'Pending Review'} /></div><span className="lens-score" title="This lens's own anomaly score (0% = no anomaly). Separate from its weighted share of the overall verification signal.">{percentage === null ? '—' : `${Math.round(percentage)}%`}<small>anomaly score</small></span></div><p className="lens-explanation">{summary || 'Awaiting analysis for this evidence lens.'}</p>{children}</Card>;
+}
+
+// Real upload workflow: a chosen file is sent as multipart/form-data to the
+// server, which extracts SHA-256/perceptual hash/EXIF from the actual bytes
+// (see artifacts/api-server/src/lib/image-processing.ts) — nothing here is
+// simulated client-side.
+function EvidenceImageGallery({ projectId, visual }: { projectId: string; visual?: VisualAnalysis }) {
+  const queryClient = useQueryClient();
+  const imagesQuery = useListProjectImages(projectId, { query: { queryKey: getListProjectImagesQueryKey(projectId) } });
+  const deleteImage = useDeleteProjectImage();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [label, setLabel] = useState('');
+  const [uploadError, setUploadError] = useState('');
+
+  const invalidateImages = () => queryClient.invalidateQueries({ queryKey: getListProjectImagesQueryKey(projectId) });
+
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('image', file);
+      if (label.trim()) formData.append('label', label.trim());
+      return uploadProjectImage(projectId, { body: formData });
+    },
+    onSuccess: () => {
+      setLabel('');
+      if (fileRef.current) fileRef.current.value = '';
+      invalidateImages();
+    },
+    onError: () => setUploadError('The image could not be uploaded. Check the file type (JPEG/PNG/WEBP) and size (under 10MB).'),
+  });
+
+  const chooseFile = (file?: File) => {
+    if (!file) return;
+    setUploadError('');
+    upload.mutate(file);
+  };
+
+  const images: EvidenceImage[] = imagesQuery.data ?? [];
+  const flaggedImageIds = new Set<number>(visual?.checks?.flatMap((check) => check.supportingImageIds ?? []) ?? []);
+
+  return (
+    <Card className="evidence-gallery-card">
+      <SectionHeading eyebrow="VISUAL EVIDENCE" title="Evidence photographs" detail="Metadata is extracted from the file itself when uploaded — nothing here is invented." />
+      <div className="gallery-upload">
+        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" data-testid="input-evidence-image" onChange={(e) => chooseFile(e.target.files?.[0])} disabled={upload.isPending} />
+        <input type="text" placeholder="Optional label (e.g. 'Foundation, June visit')" value={label} onChange={(e) => setLabel(e.target.value)} data-testid="input-evidence-label" />
+        {upload.isPending && <span className="gallery-upload-status"><RefreshCw size={13} className="spin" /> Uploading…</span>}
+      </div>
+      {uploadError && <div className="form-error"><AlertCircle size={15} />{uploadError}</div>}
+      {imagesQuery.isLoading ? (
+        <Skeleton className="h-24" />
+      ) : images.length ? (
+        <div className="evidence-gallery-grid">
+          {images.map((image) => (
+            <div className="gallery-item" key={image.id} data-testid={`evidence-image-${image.id}`}>
+              <div className="gallery-thumb">
+                <img src={getGetProjectImageFileUrl(projectId, image.id)} alt={image.label || image.originalFilename || `Evidence ${image.id}`} />
+                {flaggedImageIds.has(image.id) && <span className="gallery-flag">Requires verification</span>}
+              </div>
+              <div className="gallery-meta">
+                <span>{image.label || image.originalFilename || `Image #${image.id}`}</span>
+                <span>{image.capturedAt ? dateLabel(image.capturedAt) : 'No capture date'}</span>
+                <span>{image.gpsLatitude != null && image.gpsLongitude != null ? `${image.gpsLatitude.toFixed(4)}, ${image.gpsLongitude.toFixed(4)}` : 'No GPS metadata'}</span>
+              </div>
+              <button
+                className="icon-button gallery-delete"
+                data-testid={`button-delete-image-${image.id}`}
+                aria-label="Delete image"
+                disabled={deleteImage.isPending}
+                onClick={() => deleteImage.mutate({ id: projectId, imageId: image.id }, { onSuccess: invalidateImages })}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={ImageIcon} title="No evidence images yet" description="Upload a site photograph to begin building visual evidence for this project." />
+      )}
+    </Card>
+  );
+}
+
+// P0-N: the minimal authenticated write path for progress evidence — a
+// dated progress report is the only piece of real evidence the temporal,
+// cross-modal, fusion, and verification-priority engines need that
+// previously had no legitimate creation path at all outside the demo seed.
+function ProgressRecordsCard({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const recordsQuery = useListProgressRecords(projectId, { query: { queryKey: getListProgressRecordsQueryKey(projectId) } });
+  const createRecord = useCreateProgressRecord();
+  const [reportDate, setReportDate] = useState('');
+  const [progressPercent, setProgressPercent] = useState('');
+  const [note, setNote] = useState('');
+  const [formError, setFormError] = useState('');
+
+  const invalidateRecords = () => queryClient.invalidateQueries({ queryKey: getListProgressRecordsQueryKey(projectId) });
+
+  const submit = () => {
+    const percent = Number(progressPercent);
+    if (!reportDate) { setFormError('Pick the date the progress was actually reported.'); return; }
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) { setFormError('Progress must be a number between 0 and 100.'); return; }
+    setFormError('');
+    createRecord.mutate(
+      { id: projectId, data: { reportDate, progressPercent: percent, note: note.trim() || undefined } },
+      { onSuccess: () => { setReportDate(''); setProgressPercent(''); setNote(''); invalidateRecords(); } },
+    );
+  };
+
+  const records = recordsQuery.data ?? [];
+
+  return (
+    <Card className="progress-records-card">
+      <SectionHeading eyebrow="PROGRESS EVIDENCE" title="Dated progress reports" detail="Feeds the temporal, cross-modal, and verification-priority engines directly — re-run analysis after adding one." />
+      <div className="progress-form">
+        <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} data-testid="input-progress-date" />
+        <input type="number" min={0} max={100} placeholder="Progress %" value={progressPercent} onChange={(e) => setProgressPercent(e.target.value)} data-testid="input-progress-percent" />
+        <input type="text" placeholder="Optional note" value={note} onChange={(e) => setNote(e.target.value)} data-testid="input-progress-note" />
+        <button className="button button-secondary" onClick={submit} disabled={createRecord.isPending} data-testid="button-add-progress">{createRecord.isPending ? 'Saving…' : 'Add report'}</button>
+      </div>
+      {formError && <div className="form-error"><AlertCircle size={15} />{formError}</div>}
+      {recordsQuery.isLoading ? (
+        <Skeleton className="h-16" />
+      ) : records.length ? (
+        <div className="progress-list">
+          {records.map((record) => (
+            <div className="progress-row" key={record.id} data-testid={`progress-record-${record.id}`}>
+              <span>{dateLabel(record.reportDate)}</span>
+              <b>{record.progressPercent}%</b>
+              <span>{record.note || '—'}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={Waypoints} title="No progress reports yet" description="Add a dated progress report to give the temporal engine something to compare against financial and image dates." />
+      )}
+    </Card>
+  );
 }
 
 export function MapPage() {
   const projectsQuery = useListProjects({ page: 1, pageSize: 100, sort: 'priority' }, { query: { queryKey: getListProjectsQueryKey({ page: 1, pageSize: 100, sort: 'priority' }) } });
   const projects = projectsQuery.data?.items ?? [];
   const [selected, setSelected] = useState<Project | null>(null);
-  return <ShellPage><PageIntro eyebrow="PROJECT ATLAS" title="See the work in place." description="A geographic overview of the register. Select a marker to see the project’s priority and primary signal." action={<Link href="/upload" className="button button-secondary" data-testid="link-map-upload"><Upload size={15} /> Import register</Link>} /><div className="map-layout"><Card className="map-card"><div className="map-toolbar"><div><span className="eyebrow">MAHARASHTRA · PORTFOLIO VIEW</span><strong>{projects.length || 0} mapped projects</strong></div><div className="map-legend"><span><i className="map-dot critical" />Critical</span><span><i className="map-dot high" />High</span><span><i className="map-dot moderate" />Moderate</span><span><i className="map-dot low" />Low</span></div></div><div className="map-canvas"><div className="map-watermark">WORK<br />TRUTH</div><svg viewBox="0 0 760 530" className="india-map" aria-label="Project map"><path d="M310 28 C264 45 222 50 195 91 C177 119 143 128 159 168 C173 202 154 232 179 264 C196 286 183 320 209 349 C226 368 220 404 250 430 C282 457 291 491 328 503 C346 495 354 466 370 441 C391 407 409 389 421 354 C438 309 469 290 478 249 C485 214 527 185 507 149 C491 120 457 118 438 90 C415 57 364 52 349 26 Z" className="map-land" /><path d="M313 52 C287 87 275 120 250 146 M252 147 C227 195 238 248 220 285 M274 114 C335 130 394 114 451 147 M220 285 C290 271 339 281 404 252 M248 368 C302 350 351 369 409 345 M335 130 C329 184 352 219 339 281 M404 252 C401 300 378 337 349 390" className="map-river" />{projects.map((project, index) => { const x = 190 + ((project.longitude - 72) / 7.7) * 290 + ((index % 3) - 1) * 8; const y = 100 + ((21 - project.latitude) / 5.7) * 310; return <g key={project.id} onClick={() => setSelected(project)} className="map-marker" data-testid={`marker-project-${project.id}`}><circle cx={x} cy={y} r={project.priority === 'CRITICAL' ? 8 : 5.5} className={`marker-${priorityTone(project.priority)}`} /><circle cx={x} cy={y} r="13" className="marker-pulse" /></g>; })}</svg>{!projects.length && <div className="map-empty"><MapPin size={20} /><span>No mapped projects in this view</span></div>}</div></Card><Card className="map-side"><SectionHeading eyebrow="SELECTED PROJECT" title={selected?.name || 'Select a marker'} detail={selected ? 'Project details from the register' : 'Markers are colour-coded by verification priority.'} />{selected ? <div className="selected-project"><PriorityBadge priority={selected.priority} /><h3>{selected.name}</h3><p>{selected.district}, {selected.state}</p><div className="selected-stats"><Fact label="Evidence quality" value={`${Math.round(selected.evidenceQuality ?? 0)} / 100`} /><Fact label="Primary signal" value={selected.primaryFlag || 'Review evidence'} /></div><Link href={`/projects/${selected.id}`} className="button button-dark" data-testid="link-selected-project">Open investigation <ArrowRight size={15} /></Link></div> : <div className="map-side-note"><MapPin size={27} /><p>Choose a project marker to inspect its record and open an investigation.</p></div>}<div className="map-summary"><div><span>Highest concentration</span><strong>{projects[0]?.district || 'Awaiting data'}</strong></div><div><span>Projects requiring proof</span><strong>{projects.filter((p) => p.priority === 'HIGH' || p.priority === 'CRITICAL').length}</strong></div></div></Card></div></ShellPage>;
+  return <ShellPage><PageIntro eyebrow="PROJECT ATLAS" title="See the work in place." description="A geographic overview of the register. Select a marker to see the project’s priority and primary signal." action={<Link href="/upload" className="button button-secondary" data-testid="link-map-upload"><Upload size={15} /> Import register</Link>} /><div className="map-layout"><Card className="map-card"><div className="map-toolbar"><div><span className="eyebrow">MAHARASHTRA · PORTFOLIO VIEW</span><strong>{projects.length || 0} mapped projects</strong></div><div className="map-legend"><span><i className="map-dot critical" />Critical</span><span><i className="map-dot high" />High</span><span><i className="map-dot moderate" />Moderate</span><span><i className="map-dot low" />Low</span></div></div><div className="map-canvas"><div className="map-watermark">WORK<br />TRUTH</div><svg viewBox="0 0 760 530" className="india-map" aria-label="Project map"><path d="M310 28 C264 45 222 50 195 91 C177 119 143 128 159 168 C173 202 154 232 179 264 C196 286 183 320 209 349 C226 368 220 404 250 430 C282 457 291 491 328 503 C346 495 354 466 370 441 C391 407 409 389 421 354 C438 309 469 290 478 249 C485 214 527 185 507 149 C491 120 457 118 438 90 C415 57 364 52 349 26 Z" className="map-land" /><path d="M313 52 C287 87 275 120 250 146 M252 147 C227 195 238 248 220 285 M274 114 C335 130 394 114 451 147 M220 285 C290 271 339 281 404 252 M248 368 C302 350 351 369 409 345 M335 130 C329 184 352 219 339 281 M404 252 C401 300 378 337 349 390" className="map-river" />{projects.map((project, index) => { const x = 190 + ((project.longitude - 72) / 7.7) * 290 + ((index % 3) - 1) * 8; const y = 100 + ((21 - project.latitude) / 5.7) * 310; return <g key={project.id} onClick={() => setSelected(project)} className="map-marker" data-testid={`marker-project-${project.id}`}><circle cx={x} cy={y} r={project.priority === 'CRITICAL' ? 8 : 5.5} className={`marker-${priorityTone(project.priority)}`} /><circle cx={x} cy={y} r="13" className="marker-pulse" /></g>; })}</svg>{!projects.length && <div className="map-empty"><MapPin size={20} /><span>No mapped projects in this view</span></div>}</div></Card><Card className="map-side"><SectionHeading eyebrow="SELECTED PROJECT" title={selected?.name || 'Select a marker'} detail={selected ? 'Project details from the register' : 'Markers are colour-coded by verification priority.'} />{selected ? <div className="selected-project"><PriorityBadge priority={selected.priority} /><h3>{selected.name}</h3><p>{selected.district}, {selected.state}</p><div className="selected-stats"><Fact label="Evidence quality" value={`${Math.round(selected.evidenceQuality ?? 0)} / 100`} /><Fact label="Primary finding" value={selected.primaryFinding || 'Review evidence'} /></div><Link href={`/projects/${selected.id}`} className="button button-dark" data-testid="link-selected-project">Open investigation <ArrowRight size={15} /></Link></div> : <div className="map-side-note"><MapPin size={27} /><p>Choose a project marker to inspect its record and open an investigation.</p></div>}<div className="map-summary"><div><span>Highest concentration</span><strong>{projects[0]?.district || 'Awaiting data'}</strong></div><div><span>Projects requiring proof</span><strong>{projects.filter((p) => p.priority === 'HIGH' || p.priority === 'CRITICAL').length}</strong></div></div></Card></div></ShellPage>;
 }
 
 export function AnalyticsPage() {
@@ -293,9 +496,11 @@ export function UploadPage() {
 }
 
 export function SettingsPage() {
+  const sessionQuery = useGetSession({ query: { queryKey: getGetSessionQueryKey() } });
+  const user = sessionQuery.data?.user;
   const [saved, setSaved] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [sampling, setSampling] = useState('Balanced');
-  return <ShellPage><PageIntro eyebrow="METHOD & ACCESS" title="A clear method, by design." description="Understand how WorkTruth prioritises verification and configure the officer workspace around your review practice." action={saved ? <span className="saved-label"><Check size={14} /> Settings saved</span> : <button className="button button-dark" data-testid="button-save-settings" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2200); }}>Save settings <Check size={15} /></button>} /><div className="settings-layout"><div className="settings-main"><Card><SectionHeading eyebrow="RESPONSIBLE AI METHOD" title="Evidence fusion, not automated judgement." detail="The system routes attention; it does not certify a project." /><div className="method-rows"><MethodRow number="01" title="Signals stay separate" description="Financial, visual, geographic, temporal, and text checks are calculated independently before they are combined." /><MethodRow number="02" title="Weights are visible" description="Each signal’s contribution is shown on the investigation page so an officer can challenge the priority." /><MethodRow number="03" title="Context remains human" description="A flagged project is a prompt for verification, never a conclusion about delivery or intent." /></div></Card><Card><SectionHeading eyebrow="PRIORITISATION PROFILE" title="How much to sample" detail="This affects routing, not the underlying evidence." /><div className="sampling-options">{['Focused', 'Balanced', 'Broad'].map((option) => <button key={option} className={cn('sampling-option', sampling === option && 'sampling-selected')} data-testid={`button-sampling-${option.toLowerCase()}`} onClick={() => setSampling(option)}><span>{option}</span><small>{option === 'Focused' ? 'Only high and critical signals' : option === 'Broad' ? 'Include moderate variance' : 'Balanced officer workload'}</small>{sampling === option && <Check size={15} />}</button>)}</div></Card></div><div className="settings-side"><Card className="account-card"><div className="settings-avatar">AR</div><div className="eyebrow">SIGNED IN AS</div><h2>Ananya Rao</h2><p>District Officer<br />Maharashtra · Nashik division</p><button className="button button-secondary" data-testid="button-manage-account">Manage account <ArrowRight size={14} /></button></Card><Card><SectionHeading eyebrow="WORKSPACE" title="Desk preferences" /><div className="preference-row"><div><strong>Evidence alerts</strong><span>Notify me when a critical signal appears.</span></div><button className={cn('toggle', notifications && 'toggle-on')} data-testid="button-toggle-alerts" onClick={() => setNotifications((value) => !value)}><i /></button></div><div className="preference-row"><div><strong>Show methodology notes</strong><span>Keep explanations expanded by default.</span></div><button className="toggle toggle-on" data-testid="button-toggle-method"><i /></button></div></Card><Card className="privacy-card"><LockKeyhole size={17} /><div><strong>Protected workspace</strong><span>Session activity and investigation updates are logged for accountability.</span></div></Card></div></div></ShellPage>;
+  return <ShellPage><PageIntro eyebrow="METHOD & ACCESS" title="A clear method, by design." description="Understand how WorkTruth prioritises verification and configure the officer workspace around your review practice." action={saved ? <span className="saved-label"><Check size={14} /> Settings saved</span> : <button className="button button-dark" data-testid="button-save-settings" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2200); }}>Save settings <Check size={15} /></button>} /><div className="settings-layout"><div className="settings-main"><Card><SectionHeading eyebrow="RESPONSIBLE AI METHOD" title="Evidence fusion, not automated judgement." detail="The system routes attention; it does not certify a project." /><div className="method-rows"><MethodRow number="01" title="Signals stay separate" description="Financial, visual, geographic, temporal, and text checks are calculated independently before they are combined." /><MethodRow number="02" title="Weights are visible" description="Each signal’s contribution is shown on the investigation page so an officer can challenge the priority." /><MethodRow number="03" title="Context remains human" description="A flagged project is a prompt for verification, never a conclusion about delivery or intent." /></div></Card><Card><SectionHeading eyebrow="PRIORITISATION PROFILE" title="How much to sample" detail="This affects routing, not the underlying evidence." /><div className="sampling-options">{['Focused', 'Balanced', 'Broad'].map((option) => <button key={option} className={cn('sampling-option', sampling === option && 'sampling-selected')} data-testid={`button-sampling-${option.toLowerCase()}`} onClick={() => setSampling(option)}><span>{option}</span><small>{option === 'Focused' ? 'Only high and critical signals' : option === 'Broad' ? 'Include moderate variance' : 'Balanced officer workload'}</small>{sampling === option && <Check size={15} />}</button>)}</div></Card></div><div className="settings-side"><Card className="account-card"><div className="settings-avatar">{initials(user?.name)}</div><div className="eyebrow">SIGNED IN AS</div><h2>{user?.name ?? 'Loading…'}</h2><p>{user?.role ?? ''}</p><button className="button button-secondary" data-testid="button-manage-account">Manage account <ArrowRight size={14} /></button></Card><Card><SectionHeading eyebrow="WORKSPACE" title="Desk preferences" /><div className="preference-row"><div><strong>Evidence alerts</strong><span>Notify me when a critical signal appears.</span></div><button className={cn('toggle', notifications && 'toggle-on')} data-testid="button-toggle-alerts" onClick={() => setNotifications((value) => !value)}><i /></button></div><div className="preference-row"><div><strong>Show methodology notes</strong><span>Keep explanations expanded by default.</span></div><button className="toggle toggle-on" data-testid="button-toggle-method"><i /></button></div></Card><Card className="privacy-card"><LockKeyhole size={17} /><div><strong>Protected workspace</strong><span>Session activity and investigation updates are logged for accountability.</span></div></Card></div></div></ShellPage>;
 }
 function MethodRow({ number, title, description }: { number: string; title: string; description: string }) { return <div className="method-row"><span>{number}</span><div><h3>{title}</h3><p>{description}</p></div><CheckCircle2 size={17} /></div>; }

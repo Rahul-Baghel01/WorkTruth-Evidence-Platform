@@ -1,0 +1,31 @@
+# Local development PostgreSQL only. These credentials are LOCAL DEVELOPMENT
+# DEFAULTS — never reuse them for a staging/production database. Production
+# deployments must supply their own DATABASE_URL pointing at a real,
+# separately-secured PostgreSQL instance; this file has no bearing on that.
+#
+# Usage (see README.md "WorkTruth Local Setup" for the full flow):
+#   docker compose up -d --wait   # start Postgres and wait for its healthcheck
+#   docker compose down           # stop it (keeps the volume/data)
+#   docker compose down -v        # stop it AND delete all data (full reset)
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: worktruth-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: worktruth
+      POSTGRES_USER: worktruth
+      POSTGRES_PASSWORD: worktruth_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - worktruth_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U worktruth -d worktruth"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  worktruth_postgres_data:

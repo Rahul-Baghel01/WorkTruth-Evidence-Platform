@@ -5,15 +5,36 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
-import type { Coordinate } from './coordinate';
-import type { MapProject } from './mapProject';
+import type { GeoAnalysisStatus } from './geoAnalysisStatus';
+import type { GeoCheck } from './geoCheck';
+import type { GeoEvidencePoint } from './geoEvidencePoint';
 
 export interface GeoAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  declared: Coordinate;
-  photograph: Coordinate;
-  distanceKm: number;
-  nearby: MapProject[];
+  status: GeoAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  /** @nullable */
+  declaredLatitude: number | null;
+  /** @nullable */
+  declaredLongitude: number | null;
+  imageCount: number;
+  validGpsCount: number;
+  invalidGpsCount: number;
+  missingGpsCount: number;
+  /** @nullable */
+  minDistanceMeters: number | null;
+  /** @nullable */
+  maxDistanceMeters: number | null;
+  /** @nullable */
+  medianDistanceMeters: number | null;
+  points: GeoEvidencePoint[];
+  checks: GeoCheck[];
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
 }

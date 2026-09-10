@@ -5,8 +5,29 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
+export type HealthStatusStatus = typeof HealthStatusStatus[keyof typeof HealthStatusStatus];
+
+
+export const HealthStatusStatus = {
+  ok: 'ok',
+  degraded: 'degraded',
+} as const;
+
+/**
+ * Whether the API could reach PostgreSQL just now (a lightweight SELECT 1). Absent optional external providers never affect this — WorkTruth's analysis pipeline has none today (see .env.example).
+ */
+export type HealthStatusDatabase = typeof HealthStatusDatabase[keyof typeof HealthStatusDatabase];
+
+
+export const HealthStatusDatabase = {
+  ok: 'ok',
+  unavailable: 'unavailable',
+} as const;
+
 export interface HealthStatus {
-  status: string;
+  status: HealthStatusStatus;
+  /** Whether the API could reach PostgreSQL just now (a lightweight SELECT 1). Absent optional external providers never affect this — WorkTruth's analysis pipeline has none today (see .env.example). */
+  database?: HealthStatusDatabase;
 }
 
 export interface LoginInput {
@@ -16,16 +37,19 @@ export interface LoginInput {
 }
 
 export interface User {
+  id: number;
   name: string;
   email: string;
   role: string;
 }
 
 export interface AuthSession {
-  token: string;
   user: User;
 }
 
+/**
+ * The project's current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source/import priority value the project record may have been created with.
+ */
 export type ProjectPriority = typeof ProjectPriority[keyof typeof ProjectPriority];
 
 
@@ -47,8 +71,10 @@ export interface Project {
   expenditure: number;
   progress: number;
   evidenceQuality: number;
+  /** The project's current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source/import priority value the project record may have been created with. */
   priority: ProjectPriority;
-  primaryFlag: string;
+  /** The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding. */
+  primaryFinding: string;
   latitude: number;
   longitude: number;
   startDate: string;
@@ -91,6 +117,9 @@ export const AnalysisBundleStatus = {
   Failed: 'Failed',
 } as const;
 
+/**
+ * The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority.
+ */
 export type RiskAssessmentPriority = typeof RiskAssessmentPriority[keyof typeof RiskAssessmentPriority];
 
 
@@ -101,104 +130,621 @@ export const RiskAssessmentPriority = {
   CRITICAL: 'CRITICAL',
 } as const;
 
+export type WhyTrailEntryType = typeof WhyTrailEntryType[keyof typeof WhyTrailEntryType];
+
+
+export const WhyTrailEntryType = {
+  CROSS_MODAL: 'CROSS_MODAL',
+  FUSION: 'FUSION',
+  EVIDENCE_COVERAGE: 'EVIDENCE_COVERAGE',
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+} as const;
+
+export type InconsistencySeverity = typeof InconsistencySeverity[keyof typeof InconsistencySeverity];
+
+
+export const InconsistencySeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+  CRITICAL: 'CRITICAL',
+} as const;
+
+export type EvidenceReferenceType = typeof EvidenceReferenceType[keyof typeof EvidenceReferenceType];
+
+
+export const EvidenceReferenceType = {
+  financial_record: 'financial_record',
+  progress_record: 'progress_record',
+  evidence_image: 'evidence_image',
+  project_field: 'project_field',
+  check: 'check',
+} as const;
+
+export interface EvidenceReference {
+  type: EvidenceReferenceType;
+  /** @nullable */
+  id?: string | number | null;
+  label: string;
+  /** @nullable */
+  value: string | number | null;
+}
+
+export interface SupportingCheck {
+  lens: string;
+  checkName: string;
+}
+
+/**
+ * One link in the check -> evidence -> decision chain behind a Verification Priority. CROSS_MODAL entries trace to a specific P0-K inconsistency; FUSION entries trace to a specific anomalous lens's own triggered check; EVIDENCE_COVERAGE and INSUFFICIENT_EVIDENCE entries trace to the fusion engine's own coverage accounting.
+ */
+export interface WhyTrailEntry {
+  type: WhyTrailEntryType;
+  title: string;
+  explanation: string;
+  severity?: InconsistencySeverity;
+  confidence?: number;
+  evidenceReferences?: EvidenceReference[];
+  supportingChecks?: SupportingCheck[];
+}
+
 export interface SignalScore {
   label: string;
   score: number;
   weight: number;
   contribution: number;
+  /** False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0). */
+  evidenceSufficient?: boolean;
+}
+
+export interface VerificationPriorityDrivers {
+  /** @nullable */
+  evidenceScore: number | null;
+  /** @nullable */
+  evidenceConfidence: number | null;
+  criticalInconsistencies: number;
+  highInconsistencies: number;
+  moderateInconsistencies: number;
+  lowInconsistencies: number;
+  availableDimensions: number;
 }
 
 export type RiskAssessmentWeights = {[key: string]: number};
 
 export interface RiskAssessment {
   score: number;
+  /** The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority. */
   priority: RiskAssessmentPriority;
+  /** A passthrough of the evidence fusion's overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence. */
+  confidence: number;
+  /** The single most salient evidence-backed finding, or an honest statement that none exists / evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated. */
+  primaryFinding: string;
+  /** Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`. */
   reasons: string[];
+  /** The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens's triggered check, or the fusion engine's own evidence-coverage accounting. */
+  why: WhyTrailEntry[];
   recommendation: string;
   weights: RiskAssessmentWeights;
   components: SignalScore[];
+  drivers: VerificationPriorityDrivers;
+  methodology: string;
+  engineVersion: string;
 }
 
-export interface PeerPoint {
-  label: string;
-  amount: number;
+/**
+ * NONE - no usable financial data. BASIC - only summary sanction/expenditure. DETAILED - itemized financial_records ledger available.
+ */
+export type FinancialAnalysisEvidenceLevel = typeof FinancialAnalysisEvidenceLevel[keyof typeof FinancialAnalysisEvidenceLevel];
+
+
+export const FinancialAnalysisEvidenceLevel = {
+  NONE: 'NONE',
+  BASIC: 'BASIC',
+  DETAILED: 'DETAILED',
+} as const;
+
+export type FinancialAnalysisStatus = typeof FinancialAnalysisStatus[keyof typeof FinancialAnalysisStatus];
+
+
+export const FinancialAnalysisStatus = {
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+  WITHIN_EXPECTED_RANGE: 'WITHIN_EXPECTED_RANGE',
+  ANOMALY_DETECTED: 'ANOMALY_DETECTED',
+} as const;
+
+export interface FinancialPeerGroup {
+  /** Which project fields defined the peer group, e.g. 'category + district'. */
+  dimension: string;
+  size: number;
+  /** @nullable */
+  median?: number | null;
+  /** @nullable */
+  mean?: number | null;
+  /** @nullable */
+  standardDeviation?: number | null;
+  /**
+     * Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.
+     * @nullable
+     */
+  mad?: number | null;
+  /**
+     * This project's percentile (0-100) among peers, by expenditure-to-sanction ratio.
+     * @nullable
+     */
+  percentileRank?: number | null;
+}
+
+export type FinancialCheckSeverity = typeof FinancialCheckSeverity[keyof typeof FinancialCheckSeverity];
+
+
+export const FinancialCheckSeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+} as const;
+
+export type FinancialCheckObserved = {[key: string]: number};
+
+export interface FinancialCheck {
+  name: string;
+  severity: FinancialCheckSeverity;
+  message: string;
+  observed?: FinancialCheckObserved;
+  expected?: string;
+  supportingRecordIds?: number[];
 }
 
 export interface FinancialAnalysis {
-  sanction: number;
-  expenditure: number;
-  benchmark: number;
-  deviation: number;
-  score: number;
-  status: string;
-  explanation: string;
-  peers: PeerPoint[];
+  /** NONE - no usable financial data. BASIC - only summary sanction/expenditure. DETAILED - itemized financial_records ledger available. */
+  evidenceLevel: FinancialAnalysisEvidenceLevel;
+  status: FinancialAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  /** @nullable */
+  sanction: number | null;
+  /** @nullable */
+  expenditure: number | null;
+  /** @nullable */
+  paymentTotal: number | null;
+  /** @nullable */
+  expenditureRatio: number | null;
+  peerGroup: FinancialPeerGroup;
+  checks: FinancialCheck[];
+  reasons: string[];
+  recordCount: number;
+  engineVersion: string;
+  updatedAt: string;
 }
 
-export interface EvidenceImage {
-  id: string;
-  label: string;
-  captureDate: string;
-  /** @nullable */
-  gps?: string | null;
-  quality: number;
-  similarity: number;
-  imageUrl: string;
-  matchedImageUrl: string;
+export type VisualAnalysisStatus = typeof VisualAnalysisStatus[keyof typeof VisualAnalysisStatus];
+
+
+export const VisualAnalysisStatus = {
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+  CONSISTENT: 'CONSISTENT',
+  REQUIRES_VERIFICATION: 'REQUIRES_VERIFICATION',
+} as const;
+
+export type VisualCheckSeverity = typeof VisualCheckSeverity[keyof typeof VisualCheckSeverity];
+
+
+export const VisualCheckSeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+} as const;
+
+export type VisualCheckObserved = {[key: string]: number};
+
+export interface VisualCheck {
+  name: string;
+  severity: VisualCheckSeverity;
+  message: string;
+  observed?: VisualCheckObserved;
+  supportingImageIds?: number[];
 }
 
 export interface VisualAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  images: EvidenceImage[];
+  status: VisualAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  imageCount: number;
+  datedImageCount: number;
+  undatedImageCount: number;
+  /** @nullable */
+  earliestCapturedAt: string | null;
+  /** @nullable */
+  latestCapturedAt: string | null;
+  checks: VisualCheck[];
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
 }
 
-export interface TextAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  current: string;
-  similar: string;
+export type TextAnalysisStatus = typeof TextAnalysisStatus[keyof typeof TextAnalysisStatus];
+
+
+export const TextAnalysisStatus = {
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+  CONSISTENT: 'CONSISTENT',
+  POTENTIALLY_INCONSISTENT: 'POTENTIALLY_INCONSISTENT',
+  REQUIRES_VERIFICATION: 'REQUIRES_VERIFICATION',
+} as const;
+
+export interface TextPeerMatch {
+  projectId: string;
   similarity: number;
 }
 
-export interface Coordinate {
-  lat: number;
-  lng: number;
+export interface TextPeerGroup {
+  /** Which project fields defined the peer group, e.g. 'category + district'. */
+  dimension: string;
+  size: number;
+  topMatches: TextPeerMatch[];
+  /** @nullable */
+  averageSimilarity: number | null;
 }
 
-export interface MapProject {
-  id: string;
+export type TextCheckSeverity = typeof TextCheckSeverity[keyof typeof TextCheckSeverity];
+
+
+export const TextCheckSeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+} as const;
+
+export type TextCheckObserved = {[key: string]: number};
+
+export interface TextCheck {
   name: string;
-  priority: string;
-  flag: string;
-  lat: number;
-  lng: number;
+  severity: TextCheckSeverity;
+  message: string;
+  observed?: TextCheckObserved;
+  supportingProjectIds?: string[];
+}
+
+export interface TextAnalysis {
+  status: TextAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  descriptionLength: number;
+  tokenCount: number;
+  categoryKeywordsAvailable: boolean;
+  categoryMatchCount: number;
+  peerGroup: TextPeerGroup;
+  checks: TextCheck[];
+  reasons: string[];
+  /** The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model). */
+  method: string;
+  engineVersion: string;
+  updatedAt: string;
+}
+
+export type GeoAnalysisStatus = typeof GeoAnalysisStatus[keyof typeof GeoAnalysisStatus];
+
+
+export const GeoAnalysisStatus = {
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+  LOCATION_CONSISTENT: 'LOCATION_CONSISTENT',
+  LOCATION_ANOMALY: 'LOCATION_ANOMALY',
+} as const;
+
+/**
+ * @nullable
+ */
+export type GeoEvidencePointInvalidReason = typeof GeoEvidencePointInvalidReason[keyof typeof GeoEvidencePointInvalidReason] | null;
+
+
+export const GeoEvidencePointInvalidReason = {
+  missing: 'missing',
+  out_of_range: 'out_of_range',
+} as const;
+
+export interface GeoEvidencePoint {
+  imageId: number;
+  /** @nullable */
+  label?: string | null;
+  hasValidGps: boolean;
+  /** @nullable */
+  latitude?: number | null;
+  /** @nullable */
+  longitude?: number | null;
+  /** @nullable */
+  accuracyMeters?: number | null;
+  /**
+     * Haversine distance from the declared project location, in meters.
+     * @nullable
+     */
+  distanceMeters?: number | null;
+  /** @nullable */
+  invalidReason?: GeoEvidencePointInvalidReason;
+}
+
+export type GeoCheckSeverity = typeof GeoCheckSeverity[keyof typeof GeoCheckSeverity];
+
+
+export const GeoCheckSeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+} as const;
+
+export type GeoCheckObserved = {[key: string]: number};
+
+export interface GeoCheck {
+  name: string;
+  severity: GeoCheckSeverity;
+  message: string;
+  observed?: GeoCheckObserved;
+  supportingImageIds?: number[];
 }
 
 export interface GeoAnalysis {
-  score: number;
-  status: string;
-  explanation: string;
-  declared: Coordinate;
-  photograph: Coordinate;
-  distanceKm: number;
-  nearby: MapProject[];
+  status: GeoAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  /** @nullable */
+  declaredLatitude: number | null;
+  /** @nullable */
+  declaredLongitude: number | null;
+  imageCount: number;
+  validGpsCount: number;
+  invalidGpsCount: number;
+  missingGpsCount: number;
+  /** @nullable */
+  minDistanceMeters: number | null;
+  /** @nullable */
+  maxDistanceMeters: number | null;
+  /** @nullable */
+  medianDistanceMeters: number | null;
+  points: GeoEvidencePoint[];
+  checks: GeoCheck[];
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
 }
 
-export interface TimelinePoint {
-  label: string;
-  progress: number;
+export type TemporalAnalysisStatus = typeof TemporalAnalysisStatus[keyof typeof TemporalAnalysisStatus];
+
+
+export const TemporalAnalysisStatus = {
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+  TEMPORALLY_CONSISTENT: 'TEMPORALLY_CONSISTENT',
+  TEMPORAL_ANOMALY: 'TEMPORAL_ANOMALY',
+} as const;
+
+export type TemporalCheckSeverity = typeof TemporalCheckSeverity[keyof typeof TemporalCheckSeverity];
+
+
+export const TemporalCheckSeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+} as const;
+
+export type TemporalCheckObserved = {[key: string]: number};
+
+export interface TemporalCheck {
+  name: string;
+  severity: TemporalCheckSeverity;
+  message: string;
+  observed?: TemporalCheckObserved;
+  supportingRecordIds?: number[];
 }
 
 export interface TemporalAnalysis {
-  score: number;
+  status: TemporalAnalysisStatus;
+  /**
+     * Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+     * @nullable
+     */
+  score: number | null;
+  /** 0-1 evidence-quality/confidence, independent of the anomaly score itself. */
+  confidence: number;
+  progressRecordCount: number;
+  financialRecordCount: number;
+  imageWithDateCount: number;
+  /** @nullable */
+  firstEventDate: string | null;
+  /** @nullable */
+  lastEventDate: string | null;
+  /** @nullable */
+  firstProgressDate: string | null;
+  /** @nullable */
+  lastProgressDate: string | null;
+  progressReportCount: number;
+  /** @nullable */
+  elapsedDays: number | null;
+  /** @nullable */
+  progressChange: number | null;
+  /** @nullable */
+  progressRatePerDay: number | null;
+  checks: TemporalCheck[];
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
+}
+
+export type EvidenceFusionStatus = typeof EvidenceFusionStatus[keyof typeof EvidenceFusionStatus];
+
+
+export const EvidenceFusionStatus = {
+  INSUFFICIENT_EVIDENCE: 'INSUFFICIENT_EVIDENCE',
+  LIMITED_EVIDENCE: 'LIMITED_EVIDENCE',
+  SUFFICIENT_EVIDENCE: 'SUFFICIENT_EVIDENCE',
+  STRONG_EVIDENCE: 'STRONG_EVIDENCE',
+} as const;
+
+export interface EvidenceCoverage {
+  availableLensCount: number;
+  totalLensCount: number;
+  coveragePercent: number;
+  effectiveWeightCoverage: number;
+  confidenceAdjustedCoverage: number;
+  availableLenses: string[];
+  unavailableLenses: string[];
+}
+
+export type NormalizedLensLens = typeof NormalizedLensLens[keyof typeof NormalizedLensLens];
+
+
+export const NormalizedLensLens = {
+  financial: 'financial',
+  geospatial: 'geospatial',
+  temporal: 'temporal',
+  text: 'text',
+  visual: 'visual',
+} as const;
+
+export type FusionCheckSeverity = typeof FusionCheckSeverity[keyof typeof FusionCheckSeverity];
+
+
+export const FusionCheckSeverity = {
+  INFO: 'INFO',
+  LOW: 'LOW',
+  MODERATE: 'MODERATE',
+  HIGH: 'HIGH',
+} as const;
+
+export interface FusionCheck {
+  name: string;
+  severity: FusionCheckSeverity;
+  message: string;
+}
+
+export interface NormalizedLens {
+  lens: NormalizedLensLens;
   status: string;
-  explanation: string;
-  reportedProgress: number;
-  visualProgress: string;
-  timeline: TimelinePoint[];
+  isInsufficientEvidence: boolean;
+  isAnomalous: boolean;
+  /** @nullable */
+  score: number | null;
+  confidence: number;
+  checks: FusionCheck[];
+  reasons: string[];
+  engineVersion: string;
+}
+
+export interface AgreementSignal {
+  lenses: string[];
+  description: string;
+}
+
+export interface FusionAgreement {
+  agreeingLensCount: number;
+  signals: AgreementSignal[];
+  bonus: number;
+  explanation: string[];
+}
+
+export interface FusionMixedEvidence {
+  isMixed: boolean;
+  anomalousLenses: string[];
+  consistentLenses: string[];
+  explanation: string[];
+}
+
+export interface SeverityCounts {
+  INFO: number;
+  LOW: number;
+  MODERATE: number;
+  HIGH: number;
+  CRITICAL: number;
+}
+
+export type CrossModalInconsistencyDimensionsItem = typeof CrossModalInconsistencyDimensionsItem[keyof typeof CrossModalInconsistencyDimensionsItem];
+
+
+export const CrossModalInconsistencyDimensionsItem = {
+  financial: 'financial',
+  geospatial: 'geospatial',
+  temporal: 'temporal',
+  text: 'text',
+  visual: 'visual',
+  category: 'category',
+} as const;
+
+export type CrossModalInconsistencyObservedValues = {[key: string]: string | number | null};
+
+/**
+ * A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.
+ */
+export interface CrossModalInconsistency {
+  /** Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random. */
+  id: string;
+  type: string;
+  dimensions: CrossModalInconsistencyDimensionsItem[];
+  severity: InconsistencySeverity;
+  confidence: number;
+  description: string;
+  evidenceReferences: EvidenceReference[];
+  supportingChecks: SupportingCheck[];
+  observedValues: CrossModalInconsistencyObservedValues;
+  expectedRelationship: string;
+  engineVersion: string;
+  createdAt: string;
+}
+
+export interface FusionCrossModalSummary {
+  count: number;
+  countsBySeverity: SeverityCounts;
+  topInconsistencies: CrossModalInconsistency[];
+}
+
+export type EvidenceFusionWeights = {[key: string]: number};
+
+export interface EvidenceFusion {
+  status: EvidenceFusionStatus;
+  /**
+     * A confidence-weighted evidence-based verification signal, bounded 0-1. This is NOT a probability of fraud and is never presented as one — it is an input to Verification Priority, and a human officer remains the final decision maker.
+     * @nullable
+     */
+  overallEvidenceScore: number | null;
+  overallConfidence: number;
+  coverage: EvidenceCoverage;
+  weights: EvidenceFusionWeights;
+  lenses: NormalizedLens[];
+  agreement: FusionAgreement;
+  mixedEvidence: FusionMixedEvidence;
+  /** Purely informational passthrough of the cross-modal inconsistency engine's output — never folded into overallEvidenceScore or overallConfidence, to avoid double-counting findings a lens score may already reflect. */
+  crossModalSummary: FusionCrossModalSummary;
+  reasons: string[];
+  engineVersion: string;
+  updatedAt: string;
+}
+
+export interface CrossModalAnalysis {
+  items: CrossModalInconsistency[];
+  countsBySeverity: SeverityCounts;
+  engineVersion: string;
+  updatedAt: string;
 }
 
 export interface AnalysisBundle {
@@ -210,6 +756,8 @@ export interface AnalysisBundle {
   text: TextAnalysis;
   geo: GeoAnalysis;
   temporal: TemporalAnalysis;
+  fusion: EvidenceFusion;
+  inconsistencies: CrossModalAnalysis;
 }
 
 export type InvestigationStatus = typeof InvestigationStatus[keyof typeof InvestigationStatus];
@@ -292,10 +840,66 @@ export interface ActivityItem {
   projectId?: string | null;
 }
 
+export interface EvidenceImage {
+  id: number;
+  projectId: string;
+  /** @nullable */
+  originalFilename: string | null;
+  /** @nullable */
+  mimeType: string | null;
+  /** @nullable */
+  fileSizeBytes: number | null;
+  /** @nullable */
+  width: number | null;
+  /** @nullable */
+  height: number | null;
+  /**
+     * Actual EXIF capture timestamp, if present in the file. Never the upload time.
+     * @nullable
+     */
+  capturedAt: string | null;
+  /** @nullable */
+  gpsLatitude: number | null;
+  /** @nullable */
+  gpsLongitude: number | null;
+  /** @nullable */
+  gpsAccuracyMeters: number | null;
+  /** @nullable */
+  sha256: string | null;
+  /** @nullable */
+  perceptualHash: string | null;
+  /** @nullable */
+  label: string | null;
+  source: string;
+  uploadedAt: string;
+}
+
 export interface InvestigationInput {
   status: string;
   notes: string;
   decision: string;
+}
+
+export interface ProgressRecord {
+  id: number;
+  projectId: string;
+  reportDate: string;
+  progressPercent: number;
+  /** @nullable */
+  note: string | null;
+  source: string;
+  createdAt: string;
+}
+
+export interface ProgressRecordInput {
+  /** ISO date (YYYY-MM-DD) the progress was actually observed/reported — not today's date. */
+  reportDate: string;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  progressPercent: number;
+  note?: string;
 }
 
 export interface UploadRecord { [key: string]: unknown }

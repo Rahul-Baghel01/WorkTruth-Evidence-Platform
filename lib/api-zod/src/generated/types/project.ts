@@ -18,8 +18,10 @@ export interface Project {
   expenditure: number;
   progress: number;
   evidenceQuality: number;
+  /** The project's current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source/import priority value the project record may have been created with. */
   priority: ProjectPriority;
-  primaryFlag: string;
+  /** The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding. */
+  primaryFinding: string;
   latitude: number;
   longitude: number;
   startDate: string;

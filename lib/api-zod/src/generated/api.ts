@@ -9,15 +9,16 @@ import * as zod from 'zod';
 
 
 /**
- * @summary Health check
+ * @summary Health check — also verifies PostgreSQL connectivity (a lightweight SELECT 1); never fails due to an optional external provider, since none currently exist
  */
 export const HealthCheckResponse = zod.object({
-  "status": zod.string()
+  "status": zod.enum(['ok', 'degraded']),
+  "database": zod.enum(['ok', 'unavailable']).optional().describe('Whether the API could reach PostgreSQL just now (a lightweight SELECT 1). Absent optional external providers never affect this — WorkTruth\'s analysis pipeline has none today (see .env.example).')
 })
 
 
 /**
- * @summary Sign in to the demo officer workspace
+ * @summary Sign in with an officer account. Sets an httpOnly session cookie.
  */
 
 
@@ -28,8 +29,27 @@ export const LoginBody = zod.object({
 })
 
 export const LoginResponse = zod.object({
-  "token": zod.string(),
   "user": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.string()
+})
+})
+
+
+/**
+ * @summary End the current session and clear the session cookie
+ */
+export const LogoutResponse = zod.void()
+
+
+/**
+ * @summary Get the currently authenticated officer
+ */
+export const GetSessionResponse = zod.object({
+  "user": zod.object({
+  "id": zod.number().int(),
   "name": zod.string(),
   "email": zod.string(),
   "role": zod.string()
@@ -78,8 +98,8 @@ export const GetDashboardStatsResponse = zod.object({
   "expenditure": zod.number(),
   "progress": zod.number(),
   "evidenceQuality": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "primaryFlag": zod.string(),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The project\'s current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source\/import priority value the project record may have been created with.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding.'),
   "latitude": zod.number(),
   "longitude": zod.number(),
   "startDate": zod.string(),
@@ -135,8 +155,8 @@ export const ListProjectsResponse = zod.object({
   "expenditure": zod.number(),
   "progress": zod.number(),
   "evidenceQuality": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "primaryFlag": zod.string(),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The project\'s current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source\/import priority value the project record may have been created with.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding.'),
   "latitude": zod.number(),
   "longitude": zod.number(),
   "startDate": zod.string(),
@@ -182,8 +202,8 @@ export const CreateProjectResponse = zod.object({
   "expenditure": zod.number(),
   "progress": zod.number(),
   "evidenceQuality": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "primaryFlag": zod.string(),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The project\'s current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source\/import priority value the project record may have been created with.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding.'),
   "latitude": zod.number(),
   "longitude": zod.number(),
   "startDate": zod.string(),
@@ -210,8 +230,8 @@ export const GetProjectResponse = zod.object({
   "expenditure": zod.number(),
   "progress": zod.number(),
   "evidenceQuality": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "primaryFlag": zod.string(),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The project\'s current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source\/import priority value the project record may have been created with.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding.'),
   "latitude": zod.number(),
   "longitude": zod.number(),
   "startDate": zod.string(),
@@ -225,85 +245,300 @@ export const GetProjectResponse = zod.object({
   "updatedAt": zod.string(),
   "risk": zod.object({
   "score": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "reasons": zod.array(zod.string()),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore\/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority.'),
+  "confidence": zod.number().describe('A passthrough of the evidence fusion\'s overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding, or an honest statement that none exists \/ evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated.'),
+  "reasons": zod.array(zod.string()).describe('Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`.'),
+  "why": zod.array(zod.object({
+  "type": zod.enum(['CROSS_MODAL', 'FUSION', 'EVIDENCE_COVERAGE', 'INSUFFICIENT_EVIDENCE']),
+  "title": zod.string(),
+  "explanation": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']).optional(),
+  "confidence": zod.number().optional(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})).optional(),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})).optional()
+}).describe('One link in the check -> evidence -> decision chain behind a Verification Priority. CROSS_MODAL entries trace to a specific P0-K inconsistency; FUSION entries trace to a specific anomalous lens\'s own triggered check; EVIDENCE_COVERAGE and INSUFFICIENT_EVIDENCE entries trace to the fusion engine\'s own coverage accounting.')).describe('The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens\'s triggered check, or the fusion engine\'s own evidence-coverage accounting.'),
   "recommendation": zod.string(),
   "weights": zod.record(zod.string(), zod.number()),
   "components": zod.array(zod.object({
   "label": zod.string(),
   "score": zod.number(),
   "weight": zod.number(),
-  "contribution": zod.number()
-}))
+  "contribution": zod.number(),
+  "evidenceSufficient": zod.boolean().optional().describe('False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0).')
+})),
+  "drivers": zod.object({
+  "evidenceScore": zod.number().nullable(),
+  "evidenceConfidence": zod.number().nullable(),
+  "criticalInconsistencies": zod.number().int(),
+  "highInconsistencies": zod.number().int(),
+  "moderateInconsistencies": zod.number().int(),
+  "lowInconsistencies": zod.number().int(),
+  "availableDimensions": zod.number().int()
+}),
+  "methodology": zod.string(),
+  "engineVersion": zod.string()
 }),
   "financial": zod.object({
-  "sanction": zod.number(),
-  "expenditure": zod.number(),
-  "benchmark": zod.number(),
-  "deviation": zod.number(),
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "peers": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number()
-}))
+  "evidenceLevel": zod.enum(['NONE', 'BASIC', 'DETAILED']).describe('NONE - no usable financial data. BASIC - only summary sanction\/expenditure. DETAILED - itemized financial_records ledger available.'),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'WITHIN_EXPECTED_RANGE', 'ANOMALY_DETECTED']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "sanction": zod.number().nullable(),
+  "expenditure": zod.number().nullable(),
+  "paymentTotal": zod.number().nullable(),
+  "expenditureRatio": zod.number().nullable(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "median": zod.number().nullish(),
+  "mean": zod.number().nullish(),
+  "standardDeviation": zod.number().nullish(),
+  "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "expected": zod.string().optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "recordCount": zod.number().int(),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "visual": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "images": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "captureDate": zod.string(),
-  "gps": zod.string().nullish(),
-  "quality": zod.number(),
-  "similarity": zod.number(),
-  "imageUrl": zod.string(),
-  "matchedImageUrl": zod.string()
-}))
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "imageCount": zod.number().int(),
+  "datedImageCount": zod.number().int(),
+  "undatedImageCount": zod.number().int(),
+  "earliestCapturedAt": zod.string().nullable(),
+  "latestCapturedAt": zod.string().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "text": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "current": zod.string(),
-  "similar": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'POTENTIALLY_INCONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "descriptionLength": zod.number().int(),
+  "tokenCount": zod.number().int(),
+  "categoryKeywordsAvailable": zod.boolean(),
+  "categoryMatchCount": zod.number().int(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "topMatches": zod.array(zod.object({
+  "projectId": zod.string(),
   "similarity": zod.number()
+})),
+  "averageSimilarity": zod.number().nullable()
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingProjectIds": zod.array(zod.string()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "method": zod.string().describe('The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model).'),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "geo": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "declared": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "photograph": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "distanceKm": zod.number(),
-  "nearby": zod.array(zod.object({
-  "id": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LOCATION_CONSISTENT', 'LOCATION_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "declaredLatitude": zod.number().nullable(),
+  "declaredLongitude": zod.number().nullable(),
+  "imageCount": zod.number().int(),
+  "validGpsCount": zod.number().int(),
+  "invalidGpsCount": zod.number().int(),
+  "missingGpsCount": zod.number().int(),
+  "minDistanceMeters": zod.number().nullable(),
+  "maxDistanceMeters": zod.number().nullable(),
+  "medianDistanceMeters": zod.number().nullable(),
+  "points": zod.array(zod.object({
+  "imageId": zod.number().int(),
+  "label": zod.string().nullish(),
+  "hasValidGps": zod.boolean(),
+  "latitude": zod.number().nullish(),
+  "longitude": zod.number().nullish(),
+  "accuracyMeters": zod.number().nullish(),
+  "distanceMeters": zod.number().nullish().describe('Haversine distance from the declared project location, in meters.'),
+  "invalidReason": zod.union([zod.literal('missing'),zod.literal('out_of_range'),zod.literal(null)]).nullish()
+})),
+  "checks": zod.array(zod.object({
   "name": zod.string(),
-  "priority": zod.string(),
-  "flag": zod.string(),
-  "lat": zod.number(),
-  "lng": zod.number()
-}))
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "temporal": zod.object({
-  "score": zod.number(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'TEMPORALLY_CONSISTENT', 'TEMPORAL_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "progressRecordCount": zod.number().int(),
+  "financialRecordCount": zod.number().int(),
+  "imageWithDateCount": zod.number().int(),
+  "firstEventDate": zod.string().nullable(),
+  "lastEventDate": zod.string().nullable(),
+  "firstProgressDate": zod.string().nullable(),
+  "lastProgressDate": zod.string().nullable(),
+  "progressReportCount": zod.number().int(),
+  "elapsedDays": zod.number().int().nullable(),
+  "progressChange": zod.number().nullable(),
+  "progressRatePerDay": zod.number().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "fusion": zod.object({
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LIMITED_EVIDENCE', 'SUFFICIENT_EVIDENCE', 'STRONG_EVIDENCE']),
+  "overallEvidenceScore": zod.number().nullable().describe('A confidence-weighted evidence-based verification signal, bounded 0-1. This is NOT a probability of fraud and is never presented as one — it is an input to Verification Priority, and a human officer remains the final decision maker.'),
+  "overallConfidence": zod.number(),
+  "coverage": zod.object({
+  "availableLensCount": zod.number().int(),
+  "totalLensCount": zod.number().int(),
+  "coveragePercent": zod.number(),
+  "effectiveWeightCoverage": zod.number(),
+  "confidenceAdjustedCoverage": zod.number(),
+  "availableLenses": zod.array(zod.string()),
+  "unavailableLenses": zod.array(zod.string())
+}),
+  "weights": zod.record(zod.string(), zod.number()),
+  "lenses": zod.array(zod.object({
+  "lens": zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual']),
   "status": zod.string(),
-  "explanation": zod.string(),
-  "reportedProgress": zod.number(),
-  "visualProgress": zod.string(),
-  "timeline": zod.array(zod.object({
+  "isInsufficientEvidence": zod.boolean(),
+  "isAnomalous": zod.boolean(),
+  "score": zod.number().nullable(),
+  "confidence": zod.number(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string()
+})),
+  "agreement": zod.object({
+  "agreeingLensCount": zod.number().int(),
+  "signals": zod.array(zod.object({
+  "lenses": zod.array(zod.string()),
+  "description": zod.string()
+})),
+  "bonus": zod.number(),
+  "explanation": zod.array(zod.string())
+}),
+  "mixedEvidence": zod.object({
+  "isMixed": zod.boolean(),
+  "anomalousLenses": zod.array(zod.string()),
+  "consistentLenses": zod.array(zod.string()),
+  "explanation": zod.array(zod.string())
+}),
+  "crossModalSummary": zod.object({
+  "count": zod.number().int(),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "topInconsistencies": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
   "label": zod.string(),
-  "progress": zod.number()
-}))
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.'))
+}).describe('Purely informational passthrough of the cross-modal inconsistency engine\'s output — never folded into overallEvidenceScore or overallConfidence, to avoid double-counting findings a lens score may already reflect.'),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "inconsistencies": zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.')),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 }),
   "investigation": zod.object({
@@ -346,8 +581,8 @@ export const UpdateProjectResponse = zod.object({
   "expenditure": zod.number(),
   "progress": zod.number(),
   "evidenceQuality": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "primaryFlag": zod.string(),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The project\'s current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source\/import priority value the project record may have been created with.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding.'),
   "latitude": zod.number(),
   "longitude": zod.number(),
   "startDate": zod.string(),
@@ -368,85 +603,300 @@ export const GetProjectAnalysisResponse = zod.object({
   "updatedAt": zod.string(),
   "risk": zod.object({
   "score": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "reasons": zod.array(zod.string()),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore\/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority.'),
+  "confidence": zod.number().describe('A passthrough of the evidence fusion\'s overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding, or an honest statement that none exists \/ evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated.'),
+  "reasons": zod.array(zod.string()).describe('Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`.'),
+  "why": zod.array(zod.object({
+  "type": zod.enum(['CROSS_MODAL', 'FUSION', 'EVIDENCE_COVERAGE', 'INSUFFICIENT_EVIDENCE']),
+  "title": zod.string(),
+  "explanation": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']).optional(),
+  "confidence": zod.number().optional(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})).optional(),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})).optional()
+}).describe('One link in the check -> evidence -> decision chain behind a Verification Priority. CROSS_MODAL entries trace to a specific P0-K inconsistency; FUSION entries trace to a specific anomalous lens\'s own triggered check; EVIDENCE_COVERAGE and INSUFFICIENT_EVIDENCE entries trace to the fusion engine\'s own coverage accounting.')).describe('The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens\'s triggered check, or the fusion engine\'s own evidence-coverage accounting.'),
   "recommendation": zod.string(),
   "weights": zod.record(zod.string(), zod.number()),
   "components": zod.array(zod.object({
   "label": zod.string(),
   "score": zod.number(),
   "weight": zod.number(),
-  "contribution": zod.number()
-}))
+  "contribution": zod.number(),
+  "evidenceSufficient": zod.boolean().optional().describe('False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0).')
+})),
+  "drivers": zod.object({
+  "evidenceScore": zod.number().nullable(),
+  "evidenceConfidence": zod.number().nullable(),
+  "criticalInconsistencies": zod.number().int(),
+  "highInconsistencies": zod.number().int(),
+  "moderateInconsistencies": zod.number().int(),
+  "lowInconsistencies": zod.number().int(),
+  "availableDimensions": zod.number().int()
+}),
+  "methodology": zod.string(),
+  "engineVersion": zod.string()
 }),
   "financial": zod.object({
-  "sanction": zod.number(),
-  "expenditure": zod.number(),
-  "benchmark": zod.number(),
-  "deviation": zod.number(),
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "peers": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number()
-}))
+  "evidenceLevel": zod.enum(['NONE', 'BASIC', 'DETAILED']).describe('NONE - no usable financial data. BASIC - only summary sanction\/expenditure. DETAILED - itemized financial_records ledger available.'),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'WITHIN_EXPECTED_RANGE', 'ANOMALY_DETECTED']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "sanction": zod.number().nullable(),
+  "expenditure": zod.number().nullable(),
+  "paymentTotal": zod.number().nullable(),
+  "expenditureRatio": zod.number().nullable(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "median": zod.number().nullish(),
+  "mean": zod.number().nullish(),
+  "standardDeviation": zod.number().nullish(),
+  "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "expected": zod.string().optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "recordCount": zod.number().int(),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "visual": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "images": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "captureDate": zod.string(),
-  "gps": zod.string().nullish(),
-  "quality": zod.number(),
-  "similarity": zod.number(),
-  "imageUrl": zod.string(),
-  "matchedImageUrl": zod.string()
-}))
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "imageCount": zod.number().int(),
+  "datedImageCount": zod.number().int(),
+  "undatedImageCount": zod.number().int(),
+  "earliestCapturedAt": zod.string().nullable(),
+  "latestCapturedAt": zod.string().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "text": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "current": zod.string(),
-  "similar": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'POTENTIALLY_INCONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "descriptionLength": zod.number().int(),
+  "tokenCount": zod.number().int(),
+  "categoryKeywordsAvailable": zod.boolean(),
+  "categoryMatchCount": zod.number().int(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "topMatches": zod.array(zod.object({
+  "projectId": zod.string(),
   "similarity": zod.number()
+})),
+  "averageSimilarity": zod.number().nullable()
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingProjectIds": zod.array(zod.string()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "method": zod.string().describe('The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model).'),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "geo": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "declared": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "photograph": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "distanceKm": zod.number(),
-  "nearby": zod.array(zod.object({
-  "id": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LOCATION_CONSISTENT', 'LOCATION_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "declaredLatitude": zod.number().nullable(),
+  "declaredLongitude": zod.number().nullable(),
+  "imageCount": zod.number().int(),
+  "validGpsCount": zod.number().int(),
+  "invalidGpsCount": zod.number().int(),
+  "missingGpsCount": zod.number().int(),
+  "minDistanceMeters": zod.number().nullable(),
+  "maxDistanceMeters": zod.number().nullable(),
+  "medianDistanceMeters": zod.number().nullable(),
+  "points": zod.array(zod.object({
+  "imageId": zod.number().int(),
+  "label": zod.string().nullish(),
+  "hasValidGps": zod.boolean(),
+  "latitude": zod.number().nullish(),
+  "longitude": zod.number().nullish(),
+  "accuracyMeters": zod.number().nullish(),
+  "distanceMeters": zod.number().nullish().describe('Haversine distance from the declared project location, in meters.'),
+  "invalidReason": zod.union([zod.literal('missing'),zod.literal('out_of_range'),zod.literal(null)]).nullish()
+})),
+  "checks": zod.array(zod.object({
   "name": zod.string(),
-  "priority": zod.string(),
-  "flag": zod.string(),
-  "lat": zod.number(),
-  "lng": zod.number()
-}))
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "temporal": zod.object({
-  "score": zod.number(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'TEMPORALLY_CONSISTENT', 'TEMPORAL_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "progressRecordCount": zod.number().int(),
+  "financialRecordCount": zod.number().int(),
+  "imageWithDateCount": zod.number().int(),
+  "firstEventDate": zod.string().nullable(),
+  "lastEventDate": zod.string().nullable(),
+  "firstProgressDate": zod.string().nullable(),
+  "lastProgressDate": zod.string().nullable(),
+  "progressReportCount": zod.number().int(),
+  "elapsedDays": zod.number().int().nullable(),
+  "progressChange": zod.number().nullable(),
+  "progressRatePerDay": zod.number().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "fusion": zod.object({
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LIMITED_EVIDENCE', 'SUFFICIENT_EVIDENCE', 'STRONG_EVIDENCE']),
+  "overallEvidenceScore": zod.number().nullable().describe('A confidence-weighted evidence-based verification signal, bounded 0-1. This is NOT a probability of fraud and is never presented as one — it is an input to Verification Priority, and a human officer remains the final decision maker.'),
+  "overallConfidence": zod.number(),
+  "coverage": zod.object({
+  "availableLensCount": zod.number().int(),
+  "totalLensCount": zod.number().int(),
+  "coveragePercent": zod.number(),
+  "effectiveWeightCoverage": zod.number(),
+  "confidenceAdjustedCoverage": zod.number(),
+  "availableLenses": zod.array(zod.string()),
+  "unavailableLenses": zod.array(zod.string())
+}),
+  "weights": zod.record(zod.string(), zod.number()),
+  "lenses": zod.array(zod.object({
+  "lens": zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual']),
   "status": zod.string(),
-  "explanation": zod.string(),
-  "reportedProgress": zod.number(),
-  "visualProgress": zod.string(),
-  "timeline": zod.array(zod.object({
+  "isInsufficientEvidence": zod.boolean(),
+  "isAnomalous": zod.boolean(),
+  "score": zod.number().nullable(),
+  "confidence": zod.number(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string()
+})),
+  "agreement": zod.object({
+  "agreeingLensCount": zod.number().int(),
+  "signals": zod.array(zod.object({
+  "lenses": zod.array(zod.string()),
+  "description": zod.string()
+})),
+  "bonus": zod.number(),
+  "explanation": zod.array(zod.string())
+}),
+  "mixedEvidence": zod.object({
+  "isMixed": zod.boolean(),
+  "anomalousLenses": zod.array(zod.string()),
+  "consistentLenses": zod.array(zod.string()),
+  "explanation": zod.array(zod.string())
+}),
+  "crossModalSummary": zod.object({
+  "count": zod.number().int(),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "topInconsistencies": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
   "label": zod.string(),
-  "progress": zod.number()
-}))
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.'))
+}).describe('Purely informational passthrough of the cross-modal inconsistency engine\'s output — never folded into overallEvidenceScore or overallConfidence, to avoid double-counting findings a lens score may already reflect.'),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "inconsistencies": zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.')),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 })
 
@@ -463,85 +913,300 @@ export const AnalyzeProjectResponse = zod.object({
   "updatedAt": zod.string(),
   "risk": zod.object({
   "score": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "reasons": zod.array(zod.string()),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore\/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority.'),
+  "confidence": zod.number().describe('A passthrough of the evidence fusion\'s overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding, or an honest statement that none exists \/ evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated.'),
+  "reasons": zod.array(zod.string()).describe('Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`.'),
+  "why": zod.array(zod.object({
+  "type": zod.enum(['CROSS_MODAL', 'FUSION', 'EVIDENCE_COVERAGE', 'INSUFFICIENT_EVIDENCE']),
+  "title": zod.string(),
+  "explanation": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']).optional(),
+  "confidence": zod.number().optional(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})).optional(),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})).optional()
+}).describe('One link in the check -> evidence -> decision chain behind a Verification Priority. CROSS_MODAL entries trace to a specific P0-K inconsistency; FUSION entries trace to a specific anomalous lens\'s own triggered check; EVIDENCE_COVERAGE and INSUFFICIENT_EVIDENCE entries trace to the fusion engine\'s own coverage accounting.')).describe('The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens\'s triggered check, or the fusion engine\'s own evidence-coverage accounting.'),
   "recommendation": zod.string(),
   "weights": zod.record(zod.string(), zod.number()),
   "components": zod.array(zod.object({
   "label": zod.string(),
   "score": zod.number(),
   "weight": zod.number(),
-  "contribution": zod.number()
-}))
+  "contribution": zod.number(),
+  "evidenceSufficient": zod.boolean().optional().describe('False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0).')
+})),
+  "drivers": zod.object({
+  "evidenceScore": zod.number().nullable(),
+  "evidenceConfidence": zod.number().nullable(),
+  "criticalInconsistencies": zod.number().int(),
+  "highInconsistencies": zod.number().int(),
+  "moderateInconsistencies": zod.number().int(),
+  "lowInconsistencies": zod.number().int(),
+  "availableDimensions": zod.number().int()
+}),
+  "methodology": zod.string(),
+  "engineVersion": zod.string()
 }),
   "financial": zod.object({
-  "sanction": zod.number(),
-  "expenditure": zod.number(),
-  "benchmark": zod.number(),
-  "deviation": zod.number(),
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "peers": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number()
-}))
+  "evidenceLevel": zod.enum(['NONE', 'BASIC', 'DETAILED']).describe('NONE - no usable financial data. BASIC - only summary sanction\/expenditure. DETAILED - itemized financial_records ledger available.'),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'WITHIN_EXPECTED_RANGE', 'ANOMALY_DETECTED']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "sanction": zod.number().nullable(),
+  "expenditure": zod.number().nullable(),
+  "paymentTotal": zod.number().nullable(),
+  "expenditureRatio": zod.number().nullable(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "median": zod.number().nullish(),
+  "mean": zod.number().nullish(),
+  "standardDeviation": zod.number().nullish(),
+  "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "expected": zod.string().optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "recordCount": zod.number().int(),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "visual": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "images": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "captureDate": zod.string(),
-  "gps": zod.string().nullish(),
-  "quality": zod.number(),
-  "similarity": zod.number(),
-  "imageUrl": zod.string(),
-  "matchedImageUrl": zod.string()
-}))
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "imageCount": zod.number().int(),
+  "datedImageCount": zod.number().int(),
+  "undatedImageCount": zod.number().int(),
+  "earliestCapturedAt": zod.string().nullable(),
+  "latestCapturedAt": zod.string().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "text": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "current": zod.string(),
-  "similar": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'POTENTIALLY_INCONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "descriptionLength": zod.number().int(),
+  "tokenCount": zod.number().int(),
+  "categoryKeywordsAvailable": zod.boolean(),
+  "categoryMatchCount": zod.number().int(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "topMatches": zod.array(zod.object({
+  "projectId": zod.string(),
   "similarity": zod.number()
+})),
+  "averageSimilarity": zod.number().nullable()
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingProjectIds": zod.array(zod.string()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "method": zod.string().describe('The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model).'),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "geo": zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "declared": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "photograph": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "distanceKm": zod.number(),
-  "nearby": zod.array(zod.object({
-  "id": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LOCATION_CONSISTENT', 'LOCATION_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "declaredLatitude": zod.number().nullable(),
+  "declaredLongitude": zod.number().nullable(),
+  "imageCount": zod.number().int(),
+  "validGpsCount": zod.number().int(),
+  "invalidGpsCount": zod.number().int(),
+  "missingGpsCount": zod.number().int(),
+  "minDistanceMeters": zod.number().nullable(),
+  "maxDistanceMeters": zod.number().nullable(),
+  "medianDistanceMeters": zod.number().nullable(),
+  "points": zod.array(zod.object({
+  "imageId": zod.number().int(),
+  "label": zod.string().nullish(),
+  "hasValidGps": zod.boolean(),
+  "latitude": zod.number().nullish(),
+  "longitude": zod.number().nullish(),
+  "accuracyMeters": zod.number().nullish(),
+  "distanceMeters": zod.number().nullish().describe('Haversine distance from the declared project location, in meters.'),
+  "invalidReason": zod.union([zod.literal('missing'),zod.literal('out_of_range'),zod.literal(null)]).nullish()
+})),
+  "checks": zod.array(zod.object({
   "name": zod.string(),
-  "priority": zod.string(),
-  "flag": zod.string(),
-  "lat": zod.number(),
-  "lng": zod.number()
-}))
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 }),
   "temporal": zod.object({
-  "score": zod.number(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'TEMPORALLY_CONSISTENT', 'TEMPORAL_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "progressRecordCount": zod.number().int(),
+  "financialRecordCount": zod.number().int(),
+  "imageWithDateCount": zod.number().int(),
+  "firstEventDate": zod.string().nullable(),
+  "lastEventDate": zod.string().nullable(),
+  "firstProgressDate": zod.string().nullable(),
+  "lastProgressDate": zod.string().nullable(),
+  "progressReportCount": zod.number().int(),
+  "elapsedDays": zod.number().int().nullable(),
+  "progressChange": zod.number().nullable(),
+  "progressRatePerDay": zod.number().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "fusion": zod.object({
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LIMITED_EVIDENCE', 'SUFFICIENT_EVIDENCE', 'STRONG_EVIDENCE']),
+  "overallEvidenceScore": zod.number().nullable().describe('A confidence-weighted evidence-based verification signal, bounded 0-1. This is NOT a probability of fraud and is never presented as one — it is an input to Verification Priority, and a human officer remains the final decision maker.'),
+  "overallConfidence": zod.number(),
+  "coverage": zod.object({
+  "availableLensCount": zod.number().int(),
+  "totalLensCount": zod.number().int(),
+  "coveragePercent": zod.number(),
+  "effectiveWeightCoverage": zod.number(),
+  "confidenceAdjustedCoverage": zod.number(),
+  "availableLenses": zod.array(zod.string()),
+  "unavailableLenses": zod.array(zod.string())
+}),
+  "weights": zod.record(zod.string(), zod.number()),
+  "lenses": zod.array(zod.object({
+  "lens": zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual']),
   "status": zod.string(),
-  "explanation": zod.string(),
-  "reportedProgress": zod.number(),
-  "visualProgress": zod.string(),
-  "timeline": zod.array(zod.object({
+  "isInsufficientEvidence": zod.boolean(),
+  "isAnomalous": zod.boolean(),
+  "score": zod.number().nullable(),
+  "confidence": zod.number(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string()
+})),
+  "agreement": zod.object({
+  "agreeingLensCount": zod.number().int(),
+  "signals": zod.array(zod.object({
+  "lenses": zod.array(zod.string()),
+  "description": zod.string()
+})),
+  "bonus": zod.number(),
+  "explanation": zod.array(zod.string())
+}),
+  "mixedEvidence": zod.object({
+  "isMixed": zod.boolean(),
+  "anomalousLenses": zod.array(zod.string()),
+  "consistentLenses": zod.array(zod.string()),
+  "explanation": zod.array(zod.string())
+}),
+  "crossModalSummary": zod.object({
+  "count": zod.number().int(),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "topInconsistencies": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
   "label": zod.string(),
-  "progress": zod.number()
-}))
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.'))
+}).describe('Purely informational passthrough of the cross-modal inconsistency engine\'s output — never folded into overallEvidenceScore or overallConfidence, to avoid double-counting findings a lens score may already reflect.'),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+}),
+  "inconsistencies": zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.')),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 })
 
@@ -555,16 +1220,47 @@ export const GetProjectRiskParams = zod.object({
 
 export const GetProjectRiskResponse = zod.object({
   "score": zod.number(),
-  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
-  "reasons": zod.array(zod.string()),
+  "priority": zod.enum(['LOW', 'MODERATE', 'HIGH', 'CRITICAL']).describe('The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore\/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority.'),
+  "confidence": zod.number().describe('A passthrough of the evidence fusion\'s overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence.'),
+  "primaryFinding": zod.string().describe('The single most salient evidence-backed finding, or an honest statement that none exists \/ evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated.'),
+  "reasons": zod.array(zod.string()).describe('Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`.'),
+  "why": zod.array(zod.object({
+  "type": zod.enum(['CROSS_MODAL', 'FUSION', 'EVIDENCE_COVERAGE', 'INSUFFICIENT_EVIDENCE']),
+  "title": zod.string(),
+  "explanation": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']).optional(),
+  "confidence": zod.number().optional(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})).optional(),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})).optional()
+}).describe('One link in the check -> evidence -> decision chain behind a Verification Priority. CROSS_MODAL entries trace to a specific P0-K inconsistency; FUSION entries trace to a specific anomalous lens\'s own triggered check; EVIDENCE_COVERAGE and INSUFFICIENT_EVIDENCE entries trace to the fusion engine\'s own coverage accounting.')).describe('The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens\'s triggered check, or the fusion engine\'s own evidence-coverage accounting.'),
   "recommendation": zod.string(),
   "weights": zod.record(zod.string(), zod.number()),
   "components": zod.array(zod.object({
   "label": zod.string(),
   "score": zod.number(),
   "weight": zod.number(),
-  "contribution": zod.number()
-}))
+  "contribution": zod.number(),
+  "evidenceSufficient": zod.boolean().optional().describe('False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0).')
+})),
+  "drivers": zod.object({
+  "evidenceScore": zod.number().nullable(),
+  "evidenceConfidence": zod.number().nullable(),
+  "criticalInconsistencies": zod.number().int(),
+  "highInconsistencies": zod.number().int(),
+  "moderateInconsistencies": zod.number().int(),
+  "lowInconsistencies": zod.number().int(),
+  "availableDimensions": zod.number().int()
+}),
+  "methodology": zod.string(),
+  "engineVersion": zod.string()
 })
 
 
@@ -576,17 +1272,35 @@ export const GetFinancialAnalysisParams = zod.object({
 })
 
 export const GetFinancialAnalysisResponse = zod.object({
-  "sanction": zod.number(),
-  "expenditure": zod.number(),
-  "benchmark": zod.number(),
-  "deviation": zod.number(),
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "peers": zod.array(zod.object({
-  "label": zod.string(),
-  "amount": zod.number()
-}))
+  "evidenceLevel": zod.enum(['NONE', 'BASIC', 'DETAILED']).describe('NONE - no usable financial data. BASIC - only summary sanction\/expenditure. DETAILED - itemized financial_records ledger available.'),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'WITHIN_EXPECTED_RANGE', 'ANOMALY_DETECTED']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "sanction": zod.number().nullable(),
+  "expenditure": zod.number().nullable(),
+  "paymentTotal": zod.number().nullable(),
+  "expenditureRatio": zod.number().nullable(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "median": zod.number().nullish(),
+  "mean": zod.number().nullish(),
+  "standardDeviation": zod.number().nullish(),
+  "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "expected": zod.string().optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "recordCount": zod.number().int(),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 
 
@@ -598,19 +1312,24 @@ export const GetVisualAnalysisParams = zod.object({
 })
 
 export const GetVisualAnalysisResponse = zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "images": zod.array(zod.object({
-  "id": zod.string(),
-  "label": zod.string(),
-  "captureDate": zod.string(),
-  "gps": zod.string().nullish(),
-  "quality": zod.number(),
-  "similarity": zod.number(),
-  "imageUrl": zod.string(),
-  "matchedImageUrl": zod.string()
-}))
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "imageCount": zod.number().int(),
+  "datedImageCount": zod.number().int(),
+  "undatedImageCount": zod.number().int(),
+  "earliestCapturedAt": zod.string().nullable(),
+  "latestCapturedAt": zod.string().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 
 
@@ -622,12 +1341,33 @@ export const GetTextAnalysisParams = zod.object({
 })
 
 export const GetTextAnalysisResponse = zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "current": zod.string(),
-  "similar": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'CONSISTENT', 'POTENTIALLY_INCONSISTENT', 'REQUIRES_VERIFICATION']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "descriptionLength": zod.number().int(),
+  "tokenCount": zod.number().int(),
+  "categoryKeywordsAvailable": zod.boolean(),
+  "categoryMatchCount": zod.number().int(),
+  "peerGroup": zod.object({
+  "dimension": zod.string().describe('Which project fields defined the peer group, e.g. \'category + district\'.'),
+  "size": zod.number().int(),
+  "topMatches": zod.array(zod.object({
+  "projectId": zod.string(),
   "similarity": zod.number()
+})),
+  "averageSimilarity": zod.number().nullable()
+}),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingProjectIds": zod.array(zod.string()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "method": zod.string().describe('The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model).'),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 
 
@@ -639,26 +1379,38 @@ export const GetGeoAnalysisParams = zod.object({
 })
 
 export const GetGeoAnalysisResponse = zod.object({
-  "score": zod.number(),
-  "status": zod.string(),
-  "explanation": zod.string(),
-  "declared": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "photograph": zod.object({
-  "lat": zod.number(),
-  "lng": zod.number()
-}),
-  "distanceKm": zod.number(),
-  "nearby": zod.array(zod.object({
-  "id": zod.string(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LOCATION_CONSISTENT', 'LOCATION_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "declaredLatitude": zod.number().nullable(),
+  "declaredLongitude": zod.number().nullable(),
+  "imageCount": zod.number().int(),
+  "validGpsCount": zod.number().int(),
+  "invalidGpsCount": zod.number().int(),
+  "missingGpsCount": zod.number().int(),
+  "minDistanceMeters": zod.number().nullable(),
+  "maxDistanceMeters": zod.number().nullable(),
+  "medianDistanceMeters": zod.number().nullable(),
+  "points": zod.array(zod.object({
+  "imageId": zod.number().int(),
+  "label": zod.string().nullish(),
+  "hasValidGps": zod.boolean(),
+  "latitude": zod.number().nullish(),
+  "longitude": zod.number().nullish(),
+  "accuracyMeters": zod.number().nullish(),
+  "distanceMeters": zod.number().nullish().describe('Haversine distance from the declared project location, in meters.'),
+  "invalidReason": zod.union([zod.literal('missing'),zod.literal('out_of_range'),zod.literal(null)]).nullish()
+})),
+  "checks": zod.array(zod.object({
   "name": zod.string(),
-  "priority": zod.string(),
-  "flag": zod.string(),
-  "lat": zod.number(),
-  "lng": zod.number()
-}))
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingImageIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 
 
@@ -670,15 +1422,161 @@ export const GetTemporalAnalysisParams = zod.object({
 })
 
 export const GetTemporalAnalysisResponse = zod.object({
-  "score": zod.number(),
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'TEMPORALLY_CONSISTENT', 'TEMPORAL_ANOMALY']),
+  "score": zod.number().nullable().describe('Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.'),
+  "confidence": zod.number().describe('0-1 evidence-quality\/confidence, independent of the anomaly score itself.'),
+  "progressRecordCount": zod.number().int(),
+  "financialRecordCount": zod.number().int(),
+  "imageWithDateCount": zod.number().int(),
+  "firstEventDate": zod.string().nullable(),
+  "lastEventDate": zod.string().nullable(),
+  "firstProgressDate": zod.string().nullable(),
+  "lastProgressDate": zod.string().nullable(),
+  "progressReportCount": zod.number().int(),
+  "elapsedDays": zod.number().int().nullable(),
+  "progressChange": zod.number().nullable(),
+  "progressRatePerDay": zod.number().nullable(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string(),
+  "observed": zod.record(zod.string(), zod.number()).optional(),
+  "supportingRecordIds": zod.array(zod.number().int()).optional()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Get the combined evidence-fusion result across all five lenses (confidence-aware, not a fraud probability)
+ */
+export const GetFusionAnalysisParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetFusionAnalysisResponse = zod.object({
+  "status": zod.enum(['INSUFFICIENT_EVIDENCE', 'LIMITED_EVIDENCE', 'SUFFICIENT_EVIDENCE', 'STRONG_EVIDENCE']),
+  "overallEvidenceScore": zod.number().nullable().describe('A confidence-weighted evidence-based verification signal, bounded 0-1. This is NOT a probability of fraud and is never presented as one — it is an input to Verification Priority, and a human officer remains the final decision maker.'),
+  "overallConfidence": zod.number(),
+  "coverage": zod.object({
+  "availableLensCount": zod.number().int(),
+  "totalLensCount": zod.number().int(),
+  "coveragePercent": zod.number(),
+  "effectiveWeightCoverage": zod.number(),
+  "confidenceAdjustedCoverage": zod.number(),
+  "availableLenses": zod.array(zod.string()),
+  "unavailableLenses": zod.array(zod.string())
+}),
+  "weights": zod.record(zod.string(), zod.number()),
+  "lenses": zod.array(zod.object({
+  "lens": zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual']),
   "status": zod.string(),
-  "explanation": zod.string(),
-  "reportedProgress": zod.number(),
-  "visualProgress": zod.string(),
-  "timeline": zod.array(zod.object({
+  "isInsufficientEvidence": zod.boolean(),
+  "isAnomalous": zod.boolean(),
+  "score": zod.number().nullable(),
+  "confidence": zod.number(),
+  "checks": zod.array(zod.object({
+  "name": zod.string(),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH']),
+  "message": zod.string()
+})),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string()
+})),
+  "agreement": zod.object({
+  "agreeingLensCount": zod.number().int(),
+  "signals": zod.array(zod.object({
+  "lenses": zod.array(zod.string()),
+  "description": zod.string()
+})),
+  "bonus": zod.number(),
+  "explanation": zod.array(zod.string())
+}),
+  "mixedEvidence": zod.object({
+  "isMixed": zod.boolean(),
+  "anomalousLenses": zod.array(zod.string()),
+  "consistentLenses": zod.array(zod.string()),
+  "explanation": zod.array(zod.string())
+}),
+  "crossModalSummary": zod.object({
+  "count": zod.number().int(),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "topInconsistencies": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
   "label": zod.string(),
-  "progress": zod.number()
-}))
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.'))
+}).describe('Purely informational passthrough of the cross-modal inconsistency engine\'s output — never folded into overallEvidenceScore or overallConfidence, to avoid double-counting findings a lens score may already reflect.'),
+  "reasons": zod.array(zod.string()),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Get structured cross-modal inconsistencies — evidence dimensions that independently tell a materially inconsistent story
+ */
+export const GetInconsistenciesParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const GetInconsistenciesResponse = zod.object({
+  "items": zod.array(zod.object({
+  "id": zod.string().describe('Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random.'),
+  "type": zod.string(),
+  "dimensions": zod.array(zod.enum(['financial', 'geospatial', 'temporal', 'text', 'visual', 'category'])),
+  "severity": zod.enum(['INFO', 'LOW', 'MODERATE', 'HIGH', 'CRITICAL']),
+  "confidence": zod.number(),
+  "description": zod.string(),
+  "evidenceReferences": zod.array(zod.object({
+  "type": zod.enum(['financial_record', 'progress_record', 'evidence_image', 'project_field', 'check']),
+  "id": zod.union([zod.string(),zod.number().int()]).nullish(),
+  "label": zod.string(),
+  "value": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "supportingChecks": zod.array(zod.object({
+  "lens": zod.string(),
+  "checkName": zod.string()
+})),
+  "observedValues": zod.record(zod.string(), zod.union([zod.string(),zod.number()]).nullable()),
+  "expectedRelationship": zod.string(),
+  "engineVersion": zod.string(),
+  "createdAt": zod.string()
+}).describe('A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength\/materiality of the contradiction, confidence reflects how much corroborating evidence backs it.')),
+  "countsBySeverity": zod.object({
+  "INFO": zod.number().int(),
+  "LOW": zod.number().int(),
+  "MODERATE": zod.number().int(),
+  "HIGH": zod.number().int(),
+  "CRITICAL": zod.number().int()
+}),
+  "engineVersion": zod.string(),
+  "updatedAt": zod.string()
 })
 
 
@@ -731,6 +1629,54 @@ export const UpdateInvestigationResponse = zod.object({
 
 
 /**
+ * @summary List a project's dated progress reports (real evidence consumed by the temporal, cross-modal, fusion, and verification-priority engines)
+ */
+export const ListProgressRecordsParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ListProgressRecordsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "projectId": zod.string(),
+  "reportDate": zod.string(),
+  "progressPercent": zod.number().int(),
+  "note": zod.string().nullable(),
+  "source": zod.string(),
+  "createdAt": zod.string()
+})
+export const ListProgressRecordsResponse = zod.array(ListProgressRecordsResponseItem)
+
+
+/**
+ * @summary Record a new dated progress report for a project (P0-N — the minimal authenticated write path for progress evidence; re-run analysis afterward to pick it up)
+ */
+export const CreateProgressRecordParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const createProgressRecordBodyProgressPercentMin = 0;
+export const createProgressRecordBodyProgressPercentMax = 100;
+
+
+
+export const CreateProgressRecordBody = zod.object({
+  "reportDate": zod.string().describe('ISO date (YYYY-MM-DD) the progress was actually observed\/reported — not today\'s date.'),
+  "progressPercent": zod.number().int().min(createProgressRecordBodyProgressPercentMin).max(createProgressRecordBodyProgressPercentMax),
+  "note": zod.string().optional()
+})
+
+export const CreateProgressRecordResponse = zod.object({
+  "id": zod.number().int(),
+  "projectId": zod.string(),
+  "reportDate": zod.string(),
+  "progressPercent": zod.number().int(),
+  "note": zod.string().nullable(),
+  "source": zod.string(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary Validate and import a CSV or spreadsheet batch
  */
 export const UploadProjectsBody = zod.object({
@@ -749,5 +1695,110 @@ export const UploadProjectsResponse = zod.object({
   "errors": zod.array(zod.string())
 }))
 })
+
+
+/**
+ * @summary List evidence images for a project
+ */
+export const ListProjectImagesParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const ListProjectImagesResponseItem = zod.object({
+  "id": zod.number().int(),
+  "projectId": zod.string(),
+  "originalFilename": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "width": zod.number().int().nullable(),
+  "height": zod.number().int().nullable(),
+  "capturedAt": zod.string().nullable().describe('Actual EXIF capture timestamp, if present in the file. Never the upload time.'),
+  "gpsLatitude": zod.number().nullable(),
+  "gpsLongitude": zod.number().nullable(),
+  "gpsAccuracyMeters": zod.number().nullable(),
+  "sha256": zod.string().nullable(),
+  "perceptualHash": zod.string().nullable(),
+  "label": zod.string().nullable(),
+  "source": zod.string(),
+  "uploadedAt": zod.string()
+})
+export const ListProjectImagesResponse = zod.array(ListProjectImagesResponseItem)
+
+
+/**
+ * @summary Upload an evidence image for a project. Metadata (dimensions, SHA-256, perceptual hash, EXIF capture date/GPS) is extracted server-side from the actual file — never fabricated.
+ */
+export const UploadProjectImageParams = zod.object({
+  "id": zod.coerce.string()
+})
+
+export const UploadProjectImageResponse = zod.object({
+  "id": zod.number().int(),
+  "projectId": zod.string(),
+  "originalFilename": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "width": zod.number().int().nullable(),
+  "height": zod.number().int().nullable(),
+  "capturedAt": zod.string().nullable().describe('Actual EXIF capture timestamp, if present in the file. Never the upload time.'),
+  "gpsLatitude": zod.number().nullable(),
+  "gpsLongitude": zod.number().nullable(),
+  "gpsAccuracyMeters": zod.number().nullable(),
+  "sha256": zod.string().nullable(),
+  "perceptualHash": zod.string().nullable(),
+  "label": zod.string().nullable(),
+  "source": zod.string(),
+  "uploadedAt": zod.string()
+})
+
+
+/**
+ * @summary Get evidence image metadata
+ */
+export const GetProjectImageParams = zod.object({
+  "id": zod.coerce.string(),
+  "imageId": zod.coerce.number().int()
+})
+
+export const GetProjectImageResponse = zod.object({
+  "id": zod.number().int(),
+  "projectId": zod.string(),
+  "originalFilename": zod.string().nullable(),
+  "mimeType": zod.string().nullable(),
+  "fileSizeBytes": zod.number().int().nullable(),
+  "width": zod.number().int().nullable(),
+  "height": zod.number().int().nullable(),
+  "capturedAt": zod.string().nullable().describe('Actual EXIF capture timestamp, if present in the file. Never the upload time.'),
+  "gpsLatitude": zod.number().nullable(),
+  "gpsLongitude": zod.number().nullable(),
+  "gpsAccuracyMeters": zod.number().nullable(),
+  "sha256": zod.string().nullable(),
+  "perceptualHash": zod.string().nullable(),
+  "label": zod.string().nullable(),
+  "source": zod.string(),
+  "uploadedAt": zod.string()
+})
+
+
+/**
+ * @summary Delete an evidence image (removes both the database record and the stored file)
+ */
+export const DeleteProjectImageParams = zod.object({
+  "id": zod.coerce.string(),
+  "imageId": zod.coerce.number().int()
+})
+
+export const DeleteProjectImageResponse = zod.void()
+
+
+/**
+ * @summary Get the raw evidence image file bytes
+ */
+export const GetProjectImageFileParams = zod.object({
+  "id": zod.coerce.string(),
+  "imageId": zod.coerce.number().int()
+})
+
+export const GetProjectImageFileResponse = zod.unknown()
 
 

@@ -15,15 +15,22 @@ tags:
   - name: analysis
   - name: investigations
   - name: uploads
+  - name: evidence
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
-      summary: Health check
+      summary: Health check — also verifies PostgreSQL connectivity (a lightweight SELECT 1); never fails due to an optional external provider, since none currently exist
       responses:
         "200":
-          description: Healthy
+          description: Healthy (API and database both reachable)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+        "503":
+          description: Degraded — the API process is up but PostgreSQL could not be reached
           content:
             application/json:
               schema:
@@ -32,7 +39,7 @@ paths:
     post:
       operationId: login
       tags: [auth]
-      summary: Sign in to the demo officer workspace
+      summary: Sign in with an officer account. Sets an httpOnly session cookie.
       requestBody:
         required: true
         content:
@@ -46,8 +53,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthSession"
+        "400":
+          description: Invalid input
         "401":
           description: Invalid credentials
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: End the current session and clear the session cookie
+      responses:
+        "204":
+          description: Session ended
+  /auth/session:
+    get:
+      operationId: getSession
+      tags: [auth]
+      summary: Get the currently authenticated officer
+      responses:
+        "200":
+          description: Authenticated officer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          description: Not authenticated
   /dashboard/stats:
     get:
       operationId: getDashboardStats
@@ -272,6 +303,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TemporalAnalysis"
+  /projects/{id}/fusion-analysis:
+    get:
+      operationId: getFusionAnalysis
+      tags: [analysis]
+      summary: Get the combined evidence-fusion result across all five lenses (confidence-aware, not a fraud probability)
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Evidence fusion result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceFusion"
+  /projects/{id}/inconsistencies:
+    get:
+      operationId: getInconsistencies
+      tags: [analysis]
+      summary: Get structured cross-modal inconsistencies — evidence dimensions that independently tell a materially inconsistent story
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Cross-modal inconsistency analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CrossModalAnalysis"
   /projects/{id}/investigation:
     get:
       operationId: getInvestigation
@@ -305,6 +364,40 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Investigation"
+  /projects/{id}/progress:
+    get:
+      operationId: listProgressRecords
+      tags: [projects]
+      summary: List a project's dated progress reports (real evidence consumed by the temporal, cross-modal, fusion, and verification-priority engines)
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Progress records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProgressRecord" }
+    post:
+      operationId: createProgressRecord
+      tags: [projects]
+      summary: Record a new dated progress report for a project (P0-N — the minimal authenticated write path for progress evidence; re-run analysis afterward to pick it up)
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProgressRecordInput"
+      responses:
+        "201":
+          description: Created progress record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProgressRecord"
   /upload/projects:
     post:
       operationId: uploadProjects
@@ -323,6 +416,81 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UploadResult"
+  /projects/{id}/images:
+    get:
+      operationId: listProjectImages
+      tags: [evidence]
+      summary: List evidence images for a project
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200":
+          description: Evidence images
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/EvidenceImage" }
+        "404": { description: Project not found }
+    post:
+      operationId: uploadProjectImage
+      tags: [evidence]
+      summary: Upload an evidence image for a project. Metadata (dimensions, SHA-256, perceptual hash, EXIF capture date/GPS) is extracted server-side from the actual file — never fabricated.
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      requestBody:
+        required: true
+        description: "multipart/form-data with an 'image' file field and an optional 'label' text field. Deliberately left schema-less here: multipart uploads aren't validated through the generated Zod client (Zod can't meaningfully validate a raw file stream) — multer plus server-side checks (MIME allowlist, size limit, actual decode) validate the real upload in the route handler."
+        content:
+          multipart/form-data: {}
+      responses:
+        "201":
+          description: Uploaded evidence image
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EvidenceImage" }
+        "400": { description: "Invalid file (wrong type, too large, or not decodable as an image)" }
+        "404": { description: Project not found }
+  /projects/{id}/images/{imageId}:
+    get:
+      operationId: getProjectImage
+      tags: [evidence]
+      summary: Get evidence image metadata
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ImageId"
+      responses:
+        "200":
+          description: Evidence image metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EvidenceImage" }
+        "404": { description: Not found }
+    delete:
+      operationId: deleteProjectImage
+      tags: [evidence]
+      summary: Delete an evidence image (removes both the database record and the stored file)
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ImageId"
+      responses:
+        "204": { description: Deleted }
+        "404": { description: Not found }
+  /projects/{id}/images/{imageId}/file:
+    get:
+      operationId: getProjectImageFile
+      tags: [evidence]
+      summary: Get the raw evidence image file bytes
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/ImageId"
+      responses:
+        "200":
+          description: Image bytes
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        "404": { description: Not found }
 components:
   parameters:
     ProjectId:
@@ -330,12 +498,21 @@ components:
       name: id
       required: true
       schema: { type: string }
+    ImageId:
+      in: path
+      name: imageId
+      required: true
+      schema: { type: integer }
   schemas:
     HealthStatus:
       type: object
       required: [status]
       properties:
-        status: { type: string }
+        status: { type: string, enum: [ok, degraded] }
+        database:
+          type: string
+          enum: [ok, unavailable]
+          description: "Whether the API could reach PostgreSQL just now (a lightweight SELECT 1). Absent optional external providers never affect this — WorkTruth's analysis pipeline has none today (see .env.example)."
     LoginInput:
       type: object
       required: [email, password]
@@ -344,21 +521,21 @@ components:
         password: { type: string, minLength: 1 }
     AuthSession:
       type: object
-      required: [user, token]
+      required: [user]
       properties:
-        token: { type: string }
         user:
           $ref: "#/components/schemas/User"
     User:
       type: object
-      required: [name, email, role]
+      required: [id, name, email, role]
       properties:
+        id: { type: integer }
         name: { type: string }
         email: { type: string }
         role: { type: string }
     Project:
       type: object
-      required: [id, name, category, district, state, sanctionAmount, expenditure, progress, evidenceQuality, priority, primaryFlag, latitude, longitude, startDate, expectedCompletion]
+      required: [id, name, category, district, state, sanctionAmount, expenditure, progress, evidenceQuality, priority, primaryFinding, latitude, longitude, startDate, expectedCompletion]
       properties:
         id: { type: string }
         name: { type: string }
@@ -370,8 +547,13 @@ components:
         expenditure: { type: number }
         progress: { type: number }
         evidenceQuality: { type: number }
-        priority: { type: string, enum: [LOW, MODERATE, HIGH, CRITICAL] }
-        primaryFlag: { type: string }
+        priority:
+          type: string
+          enum: [LOW, MODERATE, HIGH, CRITICAL]
+          description: "The project's current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source/import priority value the project record may have been created with."
+        primaryFinding:
+          type: string
+          description: "The single most salient evidence-backed finding (kept in sync with AnalysisBundle.risk.primaryFinding) — never a fabricated narrative. States plainly when no material inconsistency exists or when evidence is insufficient, rather than inventing a finding."
         latitude: { type: number }
         longitude: { type: number }
         startDate: { type: string }
@@ -483,7 +665,7 @@ components:
         projectId: { type: ["string", "null"] }
     AnalysisBundle:
       type: object
-      required: [status, risk, financial, visual, text, geo, temporal, updatedAt]
+      required: [status, risk, financial, visual, text, geo, temporal, fusion, inconsistencies, updatedAt]
       properties:
         status: { type: string, enum: [Queued, Processing, Completed, Failed] }
         updatedAt: { type: string }
@@ -493,15 +675,31 @@ components:
         text: { $ref: "#/components/schemas/TextAnalysis" }
         geo: { $ref: "#/components/schemas/GeoAnalysis" }
         temporal: { $ref: "#/components/schemas/TemporalAnalysis" }
+        fusion: { $ref: "#/components/schemas/EvidenceFusion" }
+        inconsistencies: { $ref: "#/components/schemas/CrossModalAnalysis" }
     RiskAssessment:
       type: object
-      required: [score, priority, reasons, recommendation, weights, components]
+      required: [score, priority, confidence, primaryFinding, reasons, why, recommendation, weights, components, drivers, methodology, engineVersion]
       properties:
         score: { type: number }
-        priority: { type: string, enum: [LOW, MODERATE, HIGH, CRITICAL] }
+        priority:
+          type: string
+          enum: [LOW, MODERATE, HIGH, CRITICAL]
+          description: "The computed Verification Priority — how urgently a human officer should verify this project given the available evidence. This is NOT a probability of fraud and is never presented as one. Computed entirely from fusion.overallEvidenceScore/overallConfidence and cross-modal inconsistency severity counts; never derived from project.priority."
+        confidence:
+          type: number
+          description: "A passthrough of the evidence fusion's overallConfidence — kept separate from `priority` on purpose. A project can be HIGH priority with only moderate confidence, or LOW priority with high confidence."
+        primaryFinding:
+          type: string
+          description: "The single most salient evidence-backed finding, or an honest statement that none exists / evidence is insufficient. Replaces the old fabricated primaryFlag seed narrative entirely — never fabricated."
         reasons:
           type: array
           items: { type: string }
+          description: "Exactly why.map(entry => entry.explanation) — every reason here is traceable to a structured entry in `why`."
+        why:
+          type: array
+          items: { $ref: "#/components/schemas/WhyTrailEntry" }
+          description: "The structured explainability trail behind `priority` — each entry ties to a specific cross-modal inconsistency, a specific anomalous lens's triggered check, or the fusion engine's own evidence-coverage accounting."
         recommendation: { type: string }
         weights:
           type: object
@@ -510,6 +708,38 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SignalScore"
+        drivers:
+          $ref: "#/components/schemas/VerificationPriorityDrivers"
+        methodology: { type: string }
+        engineVersion: { type: string }
+    WhyTrailEntry:
+      type: object
+      required: [type, title, explanation]
+      description: "One link in the check -> evidence -> decision chain behind a Verification Priority. CROSS_MODAL entries trace to a specific P0-K inconsistency; FUSION entries trace to a specific anomalous lens's own triggered check; EVIDENCE_COVERAGE and INSUFFICIENT_EVIDENCE entries trace to the fusion engine's own coverage accounting."
+      properties:
+        type: { type: string, enum: [CROSS_MODAL, FUSION, EVIDENCE_COVERAGE, INSUFFICIENT_EVIDENCE] }
+        title: { type: string }
+        explanation: { type: string }
+        severity:
+          $ref: "#/components/schemas/InconsistencySeverity"
+        confidence: { type: number }
+        evidenceReferences:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        supportingChecks:
+          type: array
+          items: { $ref: "#/components/schemas/SupportingCheck" }
+    VerificationPriorityDrivers:
+      type: object
+      required: [evidenceScore, evidenceConfidence, criticalInconsistencies, highInconsistencies, moderateInconsistencies, lowInconsistencies, availableDimensions]
+      properties:
+        evidenceScore: { type: ["number", "null"] }
+        evidenceConfidence: { type: ["number", "null"] }
+        criticalInconsistencies: { type: integer }
+        highInconsistencies: { type: integer }
+        moderateInconsistencies: { type: integer }
+        lowInconsistencies: { type: integer }
+        availableDimensions: { type: integer }
     SignalScore:
       type: object
       required: [label, score, weight, contribution]
@@ -518,105 +748,452 @@ components:
         score: { type: number }
         weight: { type: number }
         contribution: { type: number }
+        evidenceSufficient:
+          type: boolean
+          description: False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0).
+    FusionCheck:
+      type: object
+      required: [name, severity, message]
+      properties:
+        name: { type: string }
+        severity: { type: string, enum: [INFO, LOW, MODERATE, HIGH] }
+        message: { type: string }
+    NormalizedLens:
+      type: object
+      required: [lens, status, isInsufficientEvidence, isAnomalous, score, confidence, checks, reasons, engineVersion]
+      properties:
+        lens: { type: string, enum: [financial, geospatial, temporal, text, visual] }
+        status: { type: string }
+        isInsufficientEvidence: { type: boolean }
+        isAnomalous: { type: boolean }
+        score: { type: ["number", "null"] }
+        confidence: { type: number }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/FusionCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        engineVersion: { type: string }
+    EvidenceCoverage:
+      type: object
+      required: [availableLensCount, totalLensCount, coveragePercent, effectiveWeightCoverage, confidenceAdjustedCoverage, availableLenses, unavailableLenses]
+      properties:
+        availableLensCount: { type: integer }
+        totalLensCount: { type: integer }
+        coveragePercent: { type: number }
+        effectiveWeightCoverage: { type: number }
+        confidenceAdjustedCoverage: { type: number }
+        availableLenses:
+          type: array
+          items: { type: string }
+        unavailableLenses:
+          type: array
+          items: { type: string }
+    AgreementSignal:
+      type: object
+      required: [lenses, description]
+      properties:
+        lenses:
+          type: array
+          items: { type: string }
+        description: { type: string }
+    FusionAgreement:
+      type: object
+      required: [agreeingLensCount, signals, bonus, explanation]
+      properties:
+        agreeingLensCount: { type: integer }
+        signals:
+          type: array
+          items: { $ref: "#/components/schemas/AgreementSignal" }
+        bonus: { type: number }
+        explanation:
+          type: array
+          items: { type: string }
+    FusionMixedEvidence:
+      type: object
+      required: [isMixed, anomalousLenses, consistentLenses, explanation]
+      properties:
+        isMixed: { type: boolean }
+        anomalousLenses:
+          type: array
+          items: { type: string }
+        consistentLenses:
+          type: array
+          items: { type: string }
+        explanation:
+          type: array
+          items: { type: string }
+    EvidenceFusion:
+      type: object
+      required: [status, overallEvidenceScore, overallConfidence, coverage, weights, lenses, agreement, mixedEvidence, crossModalSummary, reasons, engineVersion, updatedAt]
+      properties:
+        status: { type: string, enum: [INSUFFICIENT_EVIDENCE, LIMITED_EVIDENCE, SUFFICIENT_EVIDENCE, STRONG_EVIDENCE] }
+        overallEvidenceScore:
+          type: ["number", "null"]
+          description: "A confidence-weighted evidence-based verification signal, bounded 0-1. This is NOT a probability of fraud and is never presented as one — it is an input to Verification Priority, and a human officer remains the final decision maker."
+        overallConfidence: { type: number }
+        coverage:
+          $ref: "#/components/schemas/EvidenceCoverage"
+        weights:
+          type: object
+          additionalProperties: { type: number }
+        lenses:
+          type: array
+          items: { $ref: "#/components/schemas/NormalizedLens" }
+        agreement:
+          $ref: "#/components/schemas/FusionAgreement"
+        mixedEvidence:
+          $ref: "#/components/schemas/FusionMixedEvidence"
+        crossModalSummary:
+          $ref: "#/components/schemas/FusionCrossModalSummary"
+          description: "Purely informational passthrough of the cross-modal inconsistency engine's output — never folded into overallEvidenceScore or overallConfidence, to avoid double-counting findings a lens score may already reflect."
+        reasons:
+          type: array
+          items: { type: string }
+        engineVersion: { type: string }
+        updatedAt: { type: string }
+    InconsistencySeverity:
+      type: string
+      enum: [INFO, LOW, MODERATE, HIGH, CRITICAL]
+    SeverityCounts:
+      type: object
+      required: [INFO, LOW, MODERATE, HIGH, CRITICAL]
+      properties:
+        INFO: { type: integer }
+        LOW: { type: integer }
+        MODERATE: { type: integer }
+        HIGH: { type: integer }
+        CRITICAL: { type: integer }
+    EvidenceReference:
+      type: object
+      required: [type, label, value]
+      properties:
+        type: { type: string, enum: [financial_record, progress_record, evidence_image, project_field, check] }
+        id: { type: ["string", "integer", "null"] }
+        label: { type: string }
+        value: { type: ["string", "number", "null"] }
+    SupportingCheck:
+      type: object
+      required: [lens, checkName]
+      properties:
+        lens: { type: string }
+        checkName: { type: string }
+    CrossModalInconsistency:
+      type: object
+      required: [id, type, dimensions, severity, confidence, description, evidenceReferences, supportingChecks, observedValues, expectedRelationship, engineVersion, createdAt]
+      description: "A structured, evidence-referenced record of two or more independent evidence dimensions telling a materially inconsistent story. Severity and confidence are tracked separately: severity reflects the strength/materiality of the contradiction, confidence reflects how much corroborating evidence backs it."
+      properties:
+        id: { type: string, description: "Deterministic — derived from the inconsistency type and the specific evidence IDs involved, never random." }
+        type: { type: string }
+        dimensions:
+          type: array
+          items: { type: string, enum: [financial, geospatial, temporal, text, visual, category] }
+        severity:
+          $ref: "#/components/schemas/InconsistencySeverity"
+        confidence: { type: number }
+        description: { type: string }
+        evidenceReferences:
+          type: array
+          items: { $ref: "#/components/schemas/EvidenceReference" }
+        supportingChecks:
+          type: array
+          items: { $ref: "#/components/schemas/SupportingCheck" }
+        observedValues:
+          type: object
+          additionalProperties: { type: ["string", "number", "null"] }
+        expectedRelationship: { type: string }
+        engineVersion: { type: string }
+        createdAt: { type: string }
+    FusionCrossModalSummary:
+      type: object
+      required: [count, countsBySeverity, topInconsistencies]
+      properties:
+        count: { type: integer }
+        countsBySeverity:
+          $ref: "#/components/schemas/SeverityCounts"
+        topInconsistencies:
+          type: array
+          items: { $ref: "#/components/schemas/CrossModalInconsistency" }
+    CrossModalAnalysis:
+      type: object
+      required: [items, countsBySeverity, engineVersion, updatedAt]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CrossModalInconsistency" }
+        countsBySeverity:
+          $ref: "#/components/schemas/SeverityCounts"
+        engineVersion: { type: string }
+        updatedAt: { type: string }
+    FinancialCheck:
+      type: object
+      required: [name, severity, message]
+      properties:
+        name: { type: string }
+        severity: { type: string, enum: [INFO, LOW, MODERATE, HIGH] }
+        message: { type: string }
+        observed:
+          type: object
+          additionalProperties: { type: number }
+        expected: { type: string }
+        supportingRecordIds:
+          type: array
+          items: { type: integer }
+    FinancialPeerGroup:
+      type: object
+      required: [dimension, size]
+      properties:
+        dimension: { type: string, description: "Which project fields defined the peer group, e.g. 'category + district'." }
+        size: { type: integer }
+        median: { type: ["number", "null"] }
+        mean: { type: ["number", "null"] }
+        standardDeviation: { type: ["number", "null"] }
+        mad: { type: ["number", "null"], description: "Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation." }
+        percentileRank: { type: ["number", "null"], description: "This project's percentile (0-100) among peers, by expenditure-to-sanction ratio." }
     FinancialAnalysis:
       type: object
-      required: [sanction, expenditure, benchmark, deviation, score, status, explanation, peers]
+      required: [evidenceLevel, status, score, confidence, sanction, expenditure, paymentTotal, expenditureRatio, peerGroup, checks, reasons, recordCount, engineVersion, updatedAt]
       properties:
-        sanction: { type: number }
-        expenditure: { type: number }
-        benchmark: { type: number }
-        deviation: { type: number }
-        score: { type: number }
-        status: { type: string }
-        explanation: { type: string }
-        peers:
+        evidenceLevel:
+          type: string
+          enum: [NONE, BASIC, DETAILED]
+          description: NONE - no usable financial data. BASIC - only summary sanction/expenditure. DETAILED - itemized financial_records ledger available.
+        status: { type: string, enum: [INSUFFICIENT_EVIDENCE, WITHIN_EXPECTED_RANGE, ANOMALY_DETECTED] }
+        score:
+          type: ["number", "null"]
+          description: Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+        confidence:
+          type: number
+          description: 0-1 evidence-quality/confidence, independent of the anomaly score itself.
+        sanction: { type: ["number", "null"] }
+        expenditure: { type: ["number", "null"] }
+        paymentTotal: { type: ["number", "null"] }
+        expenditureRatio: { type: ["number", "null"] }
+        peerGroup:
+          $ref: "#/components/schemas/FinancialPeerGroup"
+        checks:
           type: array
-          items: { $ref: "#/components/schemas/PeerPoint" }
-    PeerPoint:
+          items: { $ref: "#/components/schemas/FinancialCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        recordCount: { type: integer }
+        engineVersion: { type: string }
+        updatedAt: { type: string }
+    VisualCheck:
       type: object
-      required: [label, amount]
+      required: [name, severity, message]
       properties:
-        label: { type: string }
-        amount: { type: number }
+        name: { type: string }
+        severity: { type: string, enum: [INFO, LOW, MODERATE, HIGH] }
+        message: { type: string }
+        observed:
+          type: object
+          additionalProperties: { type: number }
+        supportingImageIds:
+          type: array
+          items: { type: integer }
     VisualAnalysis:
       type: object
-      required: [score, status, explanation, images]
+      required: [status, score, confidence, imageCount, datedImageCount, undatedImageCount, earliestCapturedAt, latestCapturedAt, checks, reasons, engineVersion, updatedAt]
       properties:
-        score: { type: number }
-        status: { type: string }
-        explanation: { type: string }
-        images:
+        status: { type: string, enum: [INSUFFICIENT_EVIDENCE, CONSISTENT, REQUIRES_VERIFICATION] }
+        score:
+          type: ["number", "null"]
+          description: Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+        confidence:
+          type: number
+          description: 0-1 evidence-quality/confidence, independent of the anomaly score itself.
+        imageCount: { type: integer }
+        datedImageCount: { type: integer }
+        undatedImageCount: { type: integer }
+        earliestCapturedAt: { type: ["string", "null"] }
+        latestCapturedAt: { type: ["string", "null"] }
+        checks:
           type: array
-          items: { $ref: "#/components/schemas/EvidenceImage" }
+          items: { $ref: "#/components/schemas/VisualCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        engineVersion: { type: string }
+        updatedAt: { type: string }
     EvidenceImage:
       type: object
-      required: [id, label, captureDate, quality, similarity, imageUrl, matchedImageUrl]
+      required: [id, projectId, originalFilename, mimeType, fileSizeBytes, width, height, capturedAt, gpsLatitude, gpsLongitude, gpsAccuracyMeters, sha256, perceptualHash, label, source, uploadedAt]
       properties:
-        id: { type: string }
-        label: { type: string }
-        captureDate: { type: string }
-        gps: { type: ["string", "null"] }
-        quality: { type: number }
+        id: { type: integer }
+        projectId: { type: string }
+        originalFilename: { type: ["string", "null"] }
+        mimeType: { type: ["string", "null"] }
+        fileSizeBytes: { type: ["integer", "null"] }
+        width: { type: ["integer", "null"] }
+        height: { type: ["integer", "null"] }
+        capturedAt:
+          type: ["string", "null"]
+          description: Actual EXIF capture timestamp, if present in the file. Never the upload time.
+        gpsLatitude: { type: ["number", "null"] }
+        gpsLongitude: { type: ["number", "null"] }
+        gpsAccuracyMeters: { type: ["number", "null"] }
+        sha256: { type: ["string", "null"] }
+        perceptualHash: { type: ["string", "null"] }
+        label: { type: ["string", "null"] }
+        source: { type: string }
+        uploadedAt: { type: string }
+    TextCheck:
+      type: object
+      required: [name, severity, message]
+      properties:
+        name: { type: string }
+        severity: { type: string, enum: [INFO, LOW, MODERATE, HIGH] }
+        message: { type: string }
+        observed:
+          type: object
+          additionalProperties: { type: number }
+        supportingProjectIds:
+          type: array
+          items: { type: string }
+    TextPeerMatch:
+      type: object
+      required: [projectId, similarity]
+      properties:
+        projectId: { type: string }
         similarity: { type: number }
-        imageUrl: { type: string }
-        matchedImageUrl: { type: string }
+    TextPeerGroup:
+      type: object
+      required: [dimension, size, topMatches, averageSimilarity]
+      properties:
+        dimension: { type: string, description: "Which project fields defined the peer group, e.g. 'category + district'." }
+        size: { type: integer }
+        topMatches:
+          type: array
+          items: { $ref: "#/components/schemas/TextPeerMatch" }
+        averageSimilarity: { type: ["number", "null"] }
     TextAnalysis:
       type: object
-      required: [score, status, explanation, current, similar, similarity]
+      required: [status, score, confidence, descriptionLength, tokenCount, categoryKeywordsAvailable, categoryMatchCount, peerGroup, checks, reasons, method, engineVersion, updatedAt]
       properties:
-        score: { type: number }
-        status: { type: string }
-        explanation: { type: string }
-        current: { type: string }
-        similar: { type: string }
-        similarity: { type: number }
+        status: { type: string, enum: [INSUFFICIENT_EVIDENCE, CONSISTENT, POTENTIALLY_INCONSISTENT, REQUIRES_VERIFICATION] }
+        score:
+          type: ["number", "null"]
+          description: Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+        confidence:
+          type: number
+          description: 0-1 evidence-quality/confidence, independent of the anomaly score itself.
+        descriptionLength: { type: integer }
+        tokenCount: { type: integer }
+        categoryKeywordsAvailable: { type: boolean }
+        categoryMatchCount: { type: integer }
+        peerGroup:
+          $ref: "#/components/schemas/TextPeerGroup"
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/TextCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        method: { type: string, description: "The actual similarity method used (deterministic TF-IDF cosine similarity, not a learned model)." }
+        engineVersion: { type: string }
+        updatedAt: { type: string }
+    GeoCheck:
+      type: object
+      required: [name, severity, message]
+      properties:
+        name: { type: string }
+        severity: { type: string, enum: [INFO, LOW, MODERATE, HIGH] }
+        message: { type: string }
+        observed:
+          type: object
+          additionalProperties: { type: number }
+        supportingImageIds:
+          type: array
+          items: { type: integer }
+    GeoEvidencePoint:
+      type: object
+      required: [imageId, hasValidGps]
+      properties:
+        imageId: { type: integer }
+        label: { type: ["string", "null"] }
+        hasValidGps: { type: boolean }
+        latitude: { type: ["number", "null"] }
+        longitude: { type: ["number", "null"] }
+        accuracyMeters: { type: ["number", "null"] }
+        distanceMeters: { type: ["number", "null"], description: "Haversine distance from the declared project location, in meters." }
+        invalidReason: { type: ["string", "null"], enum: [missing, out_of_range, null] }
     GeoAnalysis:
       type: object
-      required: [score, status, explanation, declared, photograph, distanceKm, nearby]
+      required: [status, score, confidence, declaredLatitude, declaredLongitude, imageCount, validGpsCount, invalidGpsCount, missingGpsCount, minDistanceMeters, maxDistanceMeters, medianDistanceMeters, points, checks, reasons, engineVersion, updatedAt]
       properties:
-        score: { type: number }
-        status: { type: string }
-        explanation: { type: string }
-        declared: { $ref: "#/components/schemas/Coordinate" }
-        photograph: { $ref: "#/components/schemas/Coordinate" }
-        distanceKm: { type: number }
-        nearby:
+        status: { type: string, enum: [INSUFFICIENT_EVIDENCE, LOCATION_CONSISTENT, LOCATION_ANOMALY] }
+        score:
+          type: ["number", "null"]
+          description: Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+        confidence:
+          type: number
+          description: 0-1 evidence-quality/confidence, independent of the anomaly score itself.
+        declaredLatitude: { type: ["number", "null"] }
+        declaredLongitude: { type: ["number", "null"] }
+        imageCount: { type: integer }
+        validGpsCount: { type: integer }
+        invalidGpsCount: { type: integer }
+        missingGpsCount: { type: integer }
+        minDistanceMeters: { type: ["number", "null"] }
+        maxDistanceMeters: { type: ["number", "null"] }
+        medianDistanceMeters: { type: ["number", "null"] }
+        points:
           type: array
-          items: { $ref: "#/components/schemas/MapProject" }
-    Coordinate:
+          items: { $ref: "#/components/schemas/GeoEvidencePoint" }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/GeoCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        engineVersion: { type: string }
+        updatedAt: { type: string }
+    TemporalCheck:
       type: object
-      required: [lat, lng]
+      required: [name, severity, message]
       properties:
-        lat: { type: number }
-        lng: { type: number }
-    MapProject:
-      type: object
-      required: [id, name, priority, flag, lat, lng]
-      properties:
-        id: { type: string }
         name: { type: string }
-        priority: { type: string }
-        flag: { type: string }
-        lat: { type: number }
-        lng: { type: number }
+        severity: { type: string, enum: [INFO, LOW, MODERATE, HIGH] }
+        message: { type: string }
+        observed:
+          type: object
+          additionalProperties: { type: number }
+        supportingRecordIds:
+          type: array
+          items: { type: integer }
     TemporalAnalysis:
       type: object
-      required: [score, status, explanation, reportedProgress, visualProgress, timeline]
+      required: [status, score, confidence, progressRecordCount, financialRecordCount, imageWithDateCount, firstEventDate, lastEventDate, firstProgressDate, lastProgressDate, progressReportCount, elapsedDays, progressChange, progressRatePerDay, checks, reasons, engineVersion, updatedAt]
       properties:
-        score: { type: number }
-        status: { type: string }
-        explanation: { type: string }
-        reportedProgress: { type: number }
-        visualProgress: { type: string }
-        timeline:
+        status: { type: string, enum: [INSUFFICIENT_EVIDENCE, TEMPORALLY_CONSISTENT, TEMPORAL_ANOMALY] }
+        score:
+          type: ["number", "null"]
+          description: Normalized 0-1 anomaly score. Null when status is INSUFFICIENT_EVIDENCE.
+        confidence:
+          type: number
+          description: 0-1 evidence-quality/confidence, independent of the anomaly score itself.
+        progressRecordCount: { type: integer }
+        financialRecordCount: { type: integer }
+        imageWithDateCount: { type: integer }
+        firstEventDate: { type: ["string", "null"] }
+        lastEventDate: { type: ["string", "null"] }
+        firstProgressDate: { type: ["string", "null"] }
+        lastProgressDate: { type: ["string", "null"] }
+        progressReportCount: { type: integer }
+        elapsedDays: { type: ["integer", "null"] }
+        progressChange: { type: ["number", "null"] }
+        progressRatePerDay: { type: ["number", "null"] }
+        checks:
           type: array
-          items: { $ref: "#/components/schemas/TimelinePoint" }
-    TimelinePoint:
-      type: object
-      required: [label, progress]
-      properties:
-        label: { type: string }
-        progress: { type: number }
+          items: { $ref: "#/components/schemas/TemporalCheck" }
+        reasons:
+          type: array
+          items: { type: string }
+        engineVersion: { type: string }
+        updatedAt: { type: string }
     Investigation:
       type: object
       required: [status, notes, decision, history]
@@ -643,6 +1220,24 @@ components:
         status: { type: string }
         notes: { type: string }
         decision: { type: string }
+    ProgressRecord:
+      type: object
+      required: [id, projectId, reportDate, progressPercent, note, source, createdAt]
+      properties:
+        id: { type: integer }
+        projectId: { type: string }
+        reportDate: { type: string }
+        progressPercent: { type: integer }
+        note: { type: ["string", "null"] }
+        source: { type: string }
+        createdAt: { type: string }
+    ProgressRecordInput:
+      type: object
+      required: [reportDate, progressPercent]
+      properties:
+        reportDate: { type: string, description: "ISO date (YYYY-MM-DD) the progress was actually observed/reported — not today's date." }
+        progressPercent: { type: integer, minimum: 0, maximum: 100 }
+        note: { type: string }
     UploadInput:
       type: object
       required: [filename, records]

@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+/**
+ * The project's current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source/import priority value the project record may have been created with.
+ */
 export type ProjectPriority = typeof ProjectPriority[keyof typeof ProjectPriority];
 
 

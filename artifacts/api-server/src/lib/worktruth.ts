@@ -1,20 +1,64 @@
 import { count, desc, eq } from "drizzle-orm";
+import { Jimp, JimpMime } from "jimp";
 import { db } from "@workspace/db";
 import {
+  analysisRunsTable,
+  evidenceImagesTable,
+  financialRecordsTable,
   investigationNotesTable,
   investigationsTable,
+  progressRecordsTable,
   projectAnalysesTable,
   projectsTable,
   usersTable,
   type ProjectRow,
 } from "@workspace/db";
+import { hashPassword, normalizeEmail, resolveSeedPasswordAction } from "./auth";
+import { computeFinancialAnalysis } from "./financial-engine";
+import { computeGeoAnalysis } from "./geo-engine";
+import { computeTemporalAnalysis } from "./temporal-engine";
+import { computeTextAnalysis } from "./text-engine";
+import { computeVisualAnalysis } from "./visual-engine";
+import { computeCrossModalInconsistencies } from "./cross-modal-engine";
+import { DEFAULT_LENS_WEIGHTS, evaluateEvidenceFusion, type EvidenceFusionResult, type LensName } from "./fusion-engine";
+import { evaluateVerificationPriority } from "./verification-priority-engine";
+import { extractImageMetadata, sha256Hex } from "./image-processing";
+import { evidenceStorage } from "./storage";
 
-type Priority = "LOW" | "MODERATE" | "HIGH" | "CRITICAL";
+const LENS_DISPLAY_LABEL: Record<LensName, string> = {
+  financial: "Financial",
+  visual: "Visual",
+  geospatial: "Geographic",
+  temporal: "Temporal",
+  text: "Text",
+};
 
-const imageA =
-  "https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=900&q=80";
-const imageB =
-  "https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=900&q=80";
+// The `risk.components` (SignalScore[]) breakdown shown on the detail page's
+// Verification Priority card. Two DISTINCT per-lens numbers, deliberately
+// kept separate:
+//   - `score`        : the lens's own 0-1 anomaly score, exactly as its
+//                      engine produced it and exactly what the "Five lenses"
+//                      cards show. Not weighted, not confidence-adjusted.
+//   - `contribution` : how many points (out of 100) this lens actually added
+//                      to the fusion verification signal — its score times
+//                      the SAME confidence-adjusted, renormalized weight the
+//                      fusion engine applied (lens.effectiveWeight). The
+//                      available lenses' contributions therefore sum to
+//                      fusion.overallEvidenceScore * 100 (before the
+//                      cross-lens agreement bonus, which is not attributable
+//                      to any single lens).
+// `weight` is the fixed configured weight, surfaced only to show the scheme.
+// A near-zero `score` (a clean lens) yields a near-zero `contribution` — the
+// two are never the same metric and are not expected to match.
+export function toSignalComponents(fusion: EvidenceFusionResult) {
+  return fusion.lenses.map((lens) => ({
+    label: LENS_DISPLAY_LABEL[lens.lens],
+    score: lens.score ?? 0,
+    weight: fusion.weights[lens.lens],
+    contribution: (lens.score ?? 0) * lens.effectiveWeight * 100,
+    evidenceSufficient: !lens.isInsufficientEvidence,
+  }));
+}
 
 const baseProjects = [
   ["P-1089", "Construction of Community Hall at Village X", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 2700000, 2680000, 100, 82, "HIGH", "High cost + similar photograph", 26.4499, 80.3319, "2024-01-15", "2024-07-15", "Village X, Kanpur", "BuildWell Infrastructure"],
@@ -43,116 +87,187 @@ function projectDescription(name: string) {
   return name;
 }
 
-function riskFor(priority: Priority) {
-  return priority === "CRITICAL" ? 0.86 : priority === "HIGH" ? 0.64 : priority === "MODERATE" ? 0.38 : 0.12;
+// P0-N integration fix: a project created via the single "Add project" form
+// or the CSV/XLSX import pipeline previously carried only its summary
+// sanctionAmount/expenditure scalars — financial-engine.ts could only ever
+// reach its BASIC evidence tier for such a project, and temporal-engine /
+// cross-modal-engine had no dated financial records to check chronology
+// against at all, regardless of how much real financial data was imported.
+// This seeds the minimal, honest itemized ledger those scalars imply: a
+// SANCTION record and (if positive) an EXPENDITURE record, both dated at the
+// project's own startDate. That date is a genuinely neutral default (used
+// for BOTH records identically) — it doesn't assert any actual chronological
+// relationship between them, so it can never spuriously trigger a "dated
+// before sanction" check; it simply lets the DETAILED evidence tier and
+// downstream engines engage with real amounts instead of being permanently
+// stuck at BASIC. Reused by both the single-create and bulk-import routes.
+export async function seedFinancialRecordsFromScalars(project: { id: string; sanctionAmount: number; expenditure: number; startDate: string }, source: "manual" | "import" | "seed_demo") {
+  const rows: Array<{ projectId: string; type: "SANCTION" | "EXPENDITURE"; amount: number; recordedDate: string; source: "manual" | "import" | "seed_demo" }> = [];
+  if (project.sanctionAmount > 0) rows.push({ projectId: project.id, type: "SANCTION", amount: project.sanctionAmount, recordedDate: project.startDate, source });
+  if (project.expenditure > 0) rows.push({ projectId: project.id, type: "EXPENDITURE", amount: project.expenditure, recordedDate: project.startDate, source });
+  if (rows.length) await db.insert(financialRecordsTable).values(rows);
 }
 
-export function buildAnalysis(project: ProjectRow) {
-  const is1089 = project.id === "P-1089";
-  const is4150 = project.id === "P-4150";
-  const is3022 = project.id === "P-3022";
-  const score = riskFor(project.priority as Priority);
-  const benchmark = is1089 ? 1165000 : Math.round(project.sanctionAmount * (is4150 ? 0.56 : 0.68));
-  const financialScore = is1089 ? 0.7 : is4150 ? 0.63 : is3022 ? 0.43 : Math.min(0.62, Math.max(0.08, (project.expenditure / benchmark - 1) * 0.55));
-  const visualScore = is1089 ? 0.91 : is4150 ? 0.86 : is3022 ? 0.22 : 0.08;
-  const geoScore = is1089 ? 0.55 : is4150 ? 0.72 : 0.06;
-  const temporalScore = is1089 ? 0.8 : is4150 ? 0.61 : project.progress < 70 ? 0.48 : 0.1;
-  const textScore = is3022 ? 0.87 : 0.12;
-  const weights = { Financial: 0.25, Visual: 0.25, Geographic: 0.15, Temporal: 0.2, Text: 0.15 };
-  const components = [
-    ["Financial", financialScore],
-    ["Visual", visualScore],
-    ["Geographic", geoScore],
-    ["Temporal", temporalScore],
-    ["Text", textScore],
-  ].map(([label, signal]) => ({
-    label: String(label),
-    score: Number(signal),
-    weight: weights[String(label) as keyof typeof weights],
-    contribution: Number(signal) * weights[String(label) as keyof typeof weights] * 100,
-  }));
-  const reasons = is1089
-    ? [
-        "Expenditure is 2.3× above the peer benchmark for comparable community halls.",
-        "Project photograph has 91% visual similarity with another project's evidence.",
-        "Reported progress reached 100% while visual evidence shows minimal change.",
-        "Photograph GPS differs from the declared project location by 1.4 km.",
-      ]
-    : is4150
-      ? ["Photograph metadata is 2.1 km from the declared worksite.", "Evidence image matches another road project at 86% similarity.", "Progress is behind the expected completion curve."]
-      : is3022
-        ? ["Project description is 87% semantically similar to another work in the same village.", "Two project records may represent overlapping public works.", "Evidence completeness is below the monitoring threshold."]
-        : project.priority === "LOW"
-          ? ["No anomaly detected in the available evidence.", "Evidence is sufficiently complete for routine monitoring."]
-          : ["Evidence completeness is below the monitoring threshold.", "One or more signals require officer review before closure."];
+// Deterministic (no Math.random, no wall-clock dependency) dated progress
+// reports interpolating from a low percentage up to the project's own
+// recorded `progress`, spread across 0/45/90 days from its startDate. Real
+// rows the temporal/cross-modal/fusion/verification-priority engines
+// actually consume — not analysis output, and not claimed to be anything
+// other than synthetic demo data (source: "seed_demo").
+async function seedProgressRecordsFromScalar(project: { id: string; progress: number; startDate: string }) {
+  const start = new Date(project.startDate);
+  const target = Math.max(0, Math.min(100, project.progress));
+  const steps: Array<{ offsetDays: number; percent: number }> = [
+    { offsetDays: 0, percent: Math.round(target * 0.25) },
+    { offsetDays: 45, percent: Math.round(target * 0.6) },
+    { offsetDays: 90, percent: target },
+  ];
+  await db.insert(progressRecordsTable).values(
+    steps.map(({ offsetDays, percent }) => ({
+      projectId: project.id,
+      reportDate: new Date(start.getTime() + offsetDays * 86_400_000).toISOString().slice(0, 10),
+      progressPercent: percent,
+      note: "",
+      source: "seed_demo" as const,
+    })),
+  );
+}
+
+// A small synthetic (in-process generated, not downloaded/redistributed)
+// checkerboard image — genuine spatial structure, so its SHA-256 and
+// perceptual hash are real computed values from real bytes, exactly like an
+// uploaded photo would get (see image-processing.ts). GPS/capturedAt are
+// seed-authored DB values near the project's own declared location (a
+// deterministic small offset, not Math.random) — they are not claimed to be
+// EXIF-extracted, the same way the project's own latitude/longitude are
+// seed-authored rather than derived from anything.
+async function seedEvidenceImage(project: { id: string; latitude: number; longitude: number; startDate: string }, variant: number) {
+  const size = 48;
+  const cell = 12;
+  const colorA = 0x2244ffff;
+  const colorB = 0xffaa33ff;
+  const image = new Jimp({ width: size, height: size, color: colorA });
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2 === 1) image.setPixelColor(colorB, x, y);
+    }
+  }
+  const buffer = await image.getBuffer(JimpMime.png);
+  const metadata = await extractImageMetadata(buffer);
+  const sha256 = sha256Hex(buffer);
+  const storageKey = await evidenceStorage.save(project.id, buffer, "png");
+  const offset = (variant % 2 === 0 ? 1 : -1) * 0.0004; // roughly 40-50m — close, not identical
+  await db.insert(evidenceImagesTable).values({
+    projectId: project.id,
+    storageKey,
+    originalFilename: `seed-site-photo-${variant}.png`,
+    mimeType: "image/png",
+    fileSizeBytes: buffer.length,
+    width: metadata.width,
+    height: metadata.height,
+    capturedAt: new Date(project.startDate),
+    gpsLatitude: project.latitude + offset,
+    gpsLongitude: project.longitude + offset,
+    gpsAccuracyMeters: 8,
+    perceptualHash: metadata.perceptualHash,
+    sha256,
+    label: "Seed site photograph",
+    source: "seed_demo",
+  });
+}
+
+export async function buildAnalysis(project: ProjectRow) {
+  // Financial (P0-E), Geographic (P0-F), Temporal (P0-G), Text (P0-H),
+  // Visual (P0-I), Evidence Fusion (P0-J), the Cross-Modal Inconsistency
+  // engine (P0-K), and the Verification Priority engine (P0-L) all have real
+  // engines now — every lens score, the structured inconsistencies, the
+  // combined evidence signal, and the routed priority below are computed
+  // from actual stored evidence. No project-ID branching, no hardcoded
+  // scores, and `risk.priority`/`risk.recommendation` are no longer derived
+  // from project.priority at all — see verification-priority-engine.ts.
+  // project.priority remains on the `projectsTable` row and on the `Project`
+  // API type as source/import provenance (see toProject below), but it does
+  // not influence anything computed here.
+  //
+  // Pipeline order (deliberately non-circular — see cross-modal-engine.ts's
+  // header comment): raw lens outputs -> cross-modal inconsistency -> fusion
+  // -> verification priority. Verification priority reads only fusion's and
+  // the inconsistency engine's OUTPUTS — it never reads project.priority or
+  // project identity, and nothing here reads back from verification
+  // priority into fusion, so the pipeline stays a strict one-way chain.
+  const financial = await computeFinancialAnalysis(project);
+  const geo = await computeGeoAnalysis(project);
+  const temporal = await computeTemporalAnalysis(project);
+  const text = await computeTextAnalysis(project);
+  const visual = await computeVisualAnalysis(project);
+
+  const inconsistencies = await computeCrossModalInconsistencies(project, { financial, geospatial: geo, temporal, text, visual });
+
+  const fusion = evaluateEvidenceFusion({ financial, geospatial: geo, temporal, text, visual }, DEFAULT_LENS_WEIGHTS, inconsistencies.items);
+
+  const verificationPriority = evaluateVerificationPriority({ fusion, inconsistencies });
+
+  const components = toSignalComponents(fusion);
+
   return {
     status: "Completed",
     risk: {
-      score,
-      priority: project.priority,
-      reasons,
-      recommendation: project.priority === "LOW" ? "No immediate action" : project.priority === "MODERATE" ? "Document review recommended" : "Physical site verification recommended",
-      weights,
+      score: fusion.overallEvidenceScore ?? 0,
+      priority: verificationPriority.priority,
+      confidence: verificationPriority.confidence,
+      // The reasons for THIS routing decision (why this priority), not the
+      // fusion engine's own evidence-coverage narrative — that stays
+      // available separately via `fusion.reasons` / the Evidence Fusion
+      // panel, so the two are never confused with each other.
+      reasons: verificationPriority.reasons,
+      // Structured explainability (P0-M): every reason above is
+      // reasons === why.map(w => w.explanation) — `why` additionally carries
+      // each entry's type/severity/confidence/evidenceReferences/
+      // supportingChecks so the UI (and any future audit trail) can render
+      // the full check -> evidence -> decision chain, not just prose.
+      why: verificationPriority.why,
+      // The single most salient evidence-backed finding — replaces the old
+      // fabricated `primaryFlag` seed narrative entirely (see toProject
+      // below). Never fabricated: an honest "no material inconsistency" or
+      // "insufficient evidence" statement when nothing stands out.
+      primaryFinding: verificationPriority.primaryFinding,
+      recommendation: verificationPriority.recommendation,
+      weights: fusion.weights,
       components,
+      drivers: verificationPriority.drivers,
+      methodology: verificationPriority.methodology,
+      engineVersion: verificationPriority.engineVersion,
     },
-    financial: {
-      sanction: project.sanctionAmount,
-      expenditure: project.expenditure,
-      benchmark,
-      deviation: Number((project.expenditure / benchmark).toFixed(1)),
-      score: financialScore,
-      status: financialScore > 0.6 ? "MODERATE ANOMALY" : "WITHIN EXPECTED RANGE",
-      explanation: financialScore > 0.6 ? "The project expenditure is significantly above the benchmark for comparable projects in the same asset category and region." : "Expenditure is within the observed range for comparable projects in the same asset category and region.",
-      peers: [
-        { label: "Peer 01", amount: Math.round(benchmark * 0.82) },
-        { label: "Peer 02", amount: benchmark },
-        { label: "Peer 03", amount: Math.round(benchmark * 1.12) },
-        { label: "Current", amount: project.expenditure },
-      ],
-    },
-    visual: {
-      score: visualScore,
-      status: visualScore > 0.75 ? "HIGH CONCERN" : visualScore > 0.3 ? "MODERATE" : "NO MATCH DETECTED",
-      explanation: visualScore > 0.75 ? "This photograph is visually similar to evidence associated with another project." : "No strong visual reuse signal was detected in the available evidence.",
-      images: [
-        { id: `${project.id}-img-1`, label: "Current project photograph", captureDate: "2024-06-18", gps: `${project.latitude.toFixed(4)}, ${project.longitude.toFixed(4)}`, quality: project.evidenceQuality / 100, similarity: visualScore, imageUrl: imageA, matchedImageUrl: imageB },
-        { id: `${project.id}-img-2`, label: "Completion evidence", captureDate: "2024-07-01", gps: null, quality: Math.min(0.98, project.evidenceQuality / 100 + 0.05), similarity: Math.max(0.04, visualScore - 0.11), imageUrl: imageB, matchedImageUrl: imageA },
-      ],
-    },
-    text: {
-      score: textScore,
-      status: textScore > 0.75 ? "MODERATE" : "LOW",
-      explanation: textScore > 0.75 ? "The project descriptions are semantically similar and may represent overlapping work." : "The description is distinct from the indexed project records.",
-      current: project.description,
-      similar: is3022 ? "Construction of Community Hall at Village X" : "No material description overlap found",
-      similarity: is3022 ? 0.87 : 0.12,
-    },
-    geo: {
-      score: geoScore,
-      status: geoScore > 0.5 ? "LOCATION REQUIRES VERIFICATION" : "LOCATION CONSISTENT",
-      explanation: geoScore > 0.5 ? "Photograph GPS differs from the declared project location. GPS accuracy and missing metadata should be considered during review." : "Available location metadata is consistent with the declared project location.",
-      declared: { lat: project.latitude, lng: project.longitude },
-      photograph: { lat: project.latitude + (geoScore > 0.5 ? 0.0062 : 0.0002), lng: project.longitude + (geoScore > 0.5 ? 0.0101 : 0.0002) },
-      distanceKm: geoScore > 0.5 ? 1.4 : 0.03,
-      nearby: [],
-    },
-    temporal: {
-      score: temporalScore,
-      status: temporalScore > 0.7 ? "HIGH CONCERN" : temporalScore > 0.4 ? "MODERATE" : "CONSISTENT",
-      explanation: temporalScore > 0.7 ? "Reported progress reached 100%, while visual evidence shows minimal change across the available timeline." : "Reported progress and the available evidence chronology are broadly consistent.",
-      reportedProgress: project.progress,
-      visualProgress: temporalScore > 0.7 ? "Minimal change detected" : project.progress > 80 ? "Substantial completion detected" : "Progression appears consistent",
-      timeline: [
-        { label: "Month 1", progress: Math.min(project.progress, 20) },
-        { label: "Month 3", progress: Math.min(project.progress, 60) },
-        { label: "Month 6", progress: project.progress },
-      ],
-    },
+    financial,
+    visual,
+    text,
+    geo,
+    temporal,
+    fusion,
+    inconsistencies,
     updatedAt: new Date().toISOString(),
   };
 }
 
-function toProject(row: ProjectRow) {
+// `Project.priority` in the API is the CURRENT COMPUTED Verification
+// Priority (from the project's persisted analysis), never the raw
+// `projectsTable.priority` DB column — that column is legacy/import
+// provenance (see the schema comment on `projectsTable.priority`) and must
+// never override the computed signal (P0-L). `computedPriority` defaults to
+// `row.priority` only as a last-resort fallback for a project whose analysis
+// has somehow not been computed yet (should not happen in practice — every
+// project gets an analysis at creation/seed time) — that fallback path is
+// never reached by seeded or normally-created projects, and is not itself a
+// substitute for the real computation.
+// `Project.primaryFinding` (P0-M) replaces the old fabricated `primaryFlag`
+// seed narrative ("High cost + similar photograph", etc.) entirely — it is
+// ALWAYS the project's computed analysis.risk.primaryFinding, never the raw
+// `projectsTable.primaryFlag` column. That column still exists purely as
+// source/import provenance for the seed dataset (see its schema comment)
+// and is never read here — there is deliberately no fallback to it, unlike
+// `priority`'s defensive fallback, because a fabricated narrative string is
+// never an acceptable stand-in for a real finding, even temporarily.
+function toProject(row: ProjectRow, computedPriority: string | undefined, primaryFinding: string) {
   return {
     id: row.id,
     name: row.name,
@@ -164,8 +279,8 @@ function toProject(row: ProjectRow) {
     expenditure: row.expenditure,
     progress: row.progress,
     evidenceQuality: row.evidenceQuality,
-    priority: row.priority,
-    primaryFlag: row.primaryFlag,
+    priority: computedPriority ?? row.priority,
+    primaryFinding,
     latitude: row.latitude,
     longitude: row.longitude,
     startDate: row.startDate,
@@ -176,7 +291,65 @@ function toProject(row: ProjectRow) {
 
 export { toProject };
 
+// Provisions the one development officer account, but only when the operator
+// has explicitly configured it via env vars — never a hardcoded identity or
+// password. Runs independently of project seeding below so setting these
+// vars after the first boot (once projects already exist) still works.
+//
+// Idempotent and safe to re-run:
+//   - account missing            -> create it
+//   - account exists, password   -> rotate ONLY password_hash to a fresh
+//     no longer matches             salted scrypt hash of the configured
+//                                   password (id, name, role, sessions and
+//                                   every other record are left untouched)
+//   - account exists, password   -> do nothing
+//     already matches
+// The configured plaintext is only ever passed to hashPassword/verifyPassword
+// and is never stored or logged.
+async function ensureSeedUser() {
+  const rawEmail = process.env.SEED_OFFICER_EMAIL;
+  const password = process.env.SEED_OFFICER_PASSWORD;
+  if (!rawEmail || !password) return;
+  // Same canonical form the login handler looks up by, so a configured
+  // address with stray case/whitespace still resolves to one stable row.
+  const email = normalizeEmail(rawEmail);
+
+  const [existing] = await db
+    .select({ passwordHash: usersTable.passwordHash })
+    .from(usersTable)
+    .where(eq(usersTable.email, email));
+
+  const action = await resolveSeedPasswordAction(password, existing?.passwordHash ?? null);
+  if (action === "noop") return;
+
+  const passwordHash = await hashPassword(password);
+  if (action === "rotate") {
+    await db.update(usersTable).set({ passwordHash }).where(eq(usersTable.email, email));
+    return;
+  }
+
+  const name = process.env.SEED_OFFICER_NAME || "Duty Officer";
+  await db.insert(usersTable).values({ email, name, role: "District Monitoring Officer", passwordHash });
+}
+
+// Whether the 20-project demo dataset may be auto-created. The officer
+// account (ensureSeedUser, above) is always provisioned when configured — it
+// is real operator identity, not demo data. The demo PROJECTS are:
+//   - seeded in local development (the default), and
+//   - seeded when SEED_DEMO_DATA=true is set explicitly,
+//   - but NEVER auto-seeded in production otherwise, so a real deployment's
+//     database is never silently populated with fabricated projects.
+// `pnpm db:seed` respects this too — set SEED_DEMO_DATA=true to force it.
+function shouldSeedDemoData(): boolean {
+  const flag = process.env.SEED_DEMO_DATA;
+  if (flag === "true") return true;
+  if (flag === "false") return false;
+  return process.env.NODE_ENV !== "production";
+}
+
 export async function ensureSeeded() {
+  await ensureSeedUser();
+  if (!shouldSeedDemoData()) return;
   const [{ value }] = await db.select({ value: count() }).from(projectsTable);
   if (Number(value) > 0) return;
   const projects = baseProjects.map((item) => ({
@@ -199,11 +372,31 @@ export async function ensureSeeded() {
     location: item[15],
     contractor: item[16],
     description: projectDescription(item[1]),
+    source: "seed_demo" as const,
   }));
-  await db.insert(usersTable).values({ email: "officer@worktruth.gov.in", name: "Aarav Mehta", role: "District Monitoring Officer" }).onConflictDoNothing();
   await db.insert(projectsTable).values(projects).onConflictDoNothing();
   const rows = await db.select().from(projectsTable);
-  await db.insert(projectAnalysesTable).values(rows.map((project) => ({ projectId: project.id, status: "Completed", payload: buildAnalysis(project) }))).onConflictDoNothing();
+
+  // P0-N: give each seed project real financial-ledger and progress-report
+  // rows (and, for all but the last two — deliberately left bare so
+  // INSUFFICIENT_EVIDENCE stays genuinely demonstrated — a real evidence
+  // image too), so the financial/temporal/geo/visual engines and everything
+  // downstream of them have actual data to compute from, not just the
+  // project's summary scalars. Runs once, guarded by the empty-projects-
+  // table check above.
+  await Promise.all(
+    rows.map(async (project, index) => {
+      await seedFinancialRecordsFromScalars(project, "seed_demo");
+      await seedProgressRecordsFromScalar(project);
+      if (index < rows.length - 2) await seedEvidenceImage(project, index);
+    }),
+  );
+
+  const analyses = await Promise.all(
+    rows.map(async (project) => ({ projectId: project.id, status: "Completed", payload: await buildAnalysis(project) })),
+  );
+  await db.insert(projectAnalysesTable).values(analyses).onConflictDoNothing();
+  await db.insert(analysisRunsTable).values(analyses.map((analysis) => ({ ...analysis, triggeredBy: "seed" })));
   await db.insert(investigationsTable).values(rows.map((project) => ({ projectId: project.id, status: "Pending Review", notes: "", decision: "" }))).onConflictDoNothing();
 }
 
@@ -214,11 +407,9 @@ export async function getProject(id: string) {
   const [analysisRow] = await db.select().from(projectAnalysesTable).where(eq(projectAnalysesTable.projectId, id));
   const [investigation] = await db.select().from(investigationsTable).where(eq(investigationsTable.projectId, id));
   const history = await db.select().from(investigationNotesTable).where(eq(investigationNotesTable.projectId, id)).orderBy(desc(investigationNotesTable.createdAt));
-  const analysis = (analysisRow?.payload as ReturnType<typeof buildAnalysis> | undefined) ?? buildAnalysis(project);
-  analysis.risk.components = analysis.risk.components.map((component) => ({
-    ...component,
-    contribution: component.contribution <= 1 ? component.contribution * 100 : component.contribution,
-  }));
+  const analysis = analysisRow
+    ? (analysisRow.payload as Awaited<ReturnType<typeof buildAnalysis>>)
+    : await buildAnalysis(project);
   return {
     project,
     analysis,
@@ -231,15 +422,33 @@ export async function getProject(id: string) {
   };
 }
 
+// Joins each project row with its persisted analysis so callers (dashboard
+// stats, the project list/queue, the map) can read the same computed
+// Verification Priority and primaryFinding the detail page shows, rather
+// than the raw projectsTable.priority/primaryFlag provenance columns — see
+// toProject's doc comment.
 export async function listProjectRows() {
   await ensureSeeded();
-  return db.select().from(projectsTable).orderBy(desc(projectsTable.evidenceQuality));
+  const rows = await db
+    .select({ project: projectsTable, analysisPayload: projectAnalysesTable.payload })
+    .from(projectsTable)
+    .leftJoin(projectAnalysesTable, eq(projectAnalysesTable.projectId, projectsTable.id))
+    .orderBy(desc(projectsTable.evidenceQuality));
+  return rows.map(({ project, analysisPayload }) => {
+    const analysis = analysisPayload as Awaited<ReturnType<typeof buildAnalysis>> | null;
+    return {
+      ...project,
+      computedPriority: analysis?.risk?.priority ?? project.priority,
+      computedPrimaryFinding: analysis?.risk?.primaryFinding ?? "No material inconsistency identified; evidence is currently consistent.",
+      lensAnomalies: (analysis?.fusion?.lenses?.filter((lens) => lens.isAnomalous).map((lens) => lens.lens as string) ?? []) as string[],
+    };
+  });
 }
 
-export async function updateInvestigationRecord(id: string, status: string, notes: string, decision: string) {
+export async function updateInvestigationRecord(id: string, status: string, notes: string, decision: string, actor: { id: number; name: string }) {
   await ensureSeeded();
   await db.update(investigationsTable).set({ status, notes, decision, updatedAt: new Date() }).where(eq(investigationsTable.projectId, id));
-  await db.insert(investigationNotesTable).values({ projectId: id, status, note: notes || decision || "Investigation updated", officer: "Aarav Mehta" });
+  await db.insert(investigationNotesTable).values({ projectId: id, status, note: notes || decision || "Investigation updated", officer: actor.name, userId: actor.id });
   const detail = await getProject(id);
   return detail?.investigation;
 }

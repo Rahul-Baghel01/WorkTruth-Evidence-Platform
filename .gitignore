@@ -27,6 +27,11 @@ node_modules
 !.vscode/launch.json
 !.vscode/extensions.json
 
+# environment variables (never commit real secrets)
+.env
+.env.*
+!.env.example
+
 # misc
 /.sass-cache
 /connect.lock
@@ -44,6 +49,10 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
-# Replit
+# Local tool caches
 .cache/
 .local/
+
+# Uploaded evidence images (local filesystem storage — see
+# artifacts/api-server/src/lib/storage.ts). Never commit uploaded files.
+/artifacts/api-server/uploads/

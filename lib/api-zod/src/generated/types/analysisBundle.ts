@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AnalysisBundleStatus } from './analysisBundleStatus';
+import type { CrossModalAnalysis } from './crossModalAnalysis';
+import type { EvidenceFusion } from './evidenceFusion';
 import type { FinancialAnalysis } from './financialAnalysis';
 import type { GeoAnalysis } from './geoAnalysis';
 import type { RiskAssessment } from './riskAssessment';
@@ -22,4 +24,6 @@ export interface AnalysisBundle {
   text: TextAnalysis;
   geo: GeoAnalysis;
   temporal: TemporalAnalysis;
+  fusion: EvidenceFusion;
+  inconsistencies: CrossModalAnalysis;
 }

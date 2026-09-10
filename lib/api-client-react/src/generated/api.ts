@@ -23,7 +23,10 @@ import type {
   ActivityItem,
   AnalysisBundle,
   AuthSession,
+  CrossModalAnalysis,
   DashboardStats,
+  EvidenceFusion,
+  EvidenceImage,
   FinancialAnalysis,
   GeoAnalysis,
   HealthStatus,
@@ -31,6 +34,8 @@ import type {
   InvestigationInput,
   ListProjectsParams,
   LoginInput,
+  ProgressRecord,
+  ProgressRecordInput,
   Project,
   ProjectDetail,
   ProjectInput,
@@ -80,7 +85,7 @@ export const getHealthCheckUrl = () => {
 }
 
 /**
- * @summary Health check
+ * @summary Health check — also verifies PostgreSQL connectivity (a lightweight SELECT 1); never fails due to an optional external provider, since none currently exist
  */
 export const healthCheck = async ( options?: Parameters<typeof customFetch>[1]): Promise<HealthStatus> => {
 
@@ -104,7 +109,7 @@ export const getHealthCheckQueryKey = () => {
     }
 
 
-export const getHealthCheckQueryOptions = <TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getHealthCheckQueryOptions = <TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<HealthStatus>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -123,14 +128,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type HealthCheckQueryResult = NonNullable<Awaited<ReturnType<typeof healthCheck>>>
-export type HealthCheckQueryError = ErrorType<unknown>
+export type HealthCheckQueryError = ErrorType<HealthStatus>
 
 
 /**
- * @summary Health check
+ * @summary Health check — also verifies PostgreSQL connectivity (a lightweight SELECT 1); never fails due to an optional external provider, since none currently exist
  */
 
-export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<unknown>>(
+export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, TError = ErrorType<HealthStatus>>(
   options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof healthCheck>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -157,7 +162,7 @@ export const getLoginUrl = () => {
 }
 
 /**
- * @summary Sign in to the demo officer workspace
+ * @summary Sign in with an officer account. Sets an httpOnly session cookie.
  */
 export const login = async (loginInput: LoginInput, options?: Parameters<typeof customFetch>[1]): Promise<AuthSession> => {
 
@@ -206,7 +211,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type LoginMutationError = ErrorType<void>
 
     /**
- * @summary Sign in to the demo officer workspace
+ * @summary Sign in with an officer account. Sets an httpOnly session cookie.
  */
 export const useLogin = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof login>>, TError,{data: BodyType<LoginInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -218,6 +223,154 @@ export const useLogin = <TError = ErrorType<void>,
       > => {
       return useMutation(getLoginMutationOptions(options));
     }
+
+export const getLogoutUrl = () => {
+
+
+
+
+  return `/api/auth/logout`
+}
+
+/**
+ * @summary End the current session and clear the session cookie
+ */
+export const logout = async ( options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getLogoutUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getLogoutMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError,void, TContext> => {
+
+const mutationKey = ['logout'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof logout>>, void> = () => {
+
+
+          return  logout(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LogoutMutationResult = NonNullable<Awaited<ReturnType<typeof logout>>>
+
+    export type LogoutMutationError = ErrorType<unknown>
+
+    /**
+ * @summary End the current session and clear the session cookie
+ */
+export const useLogout = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof logout>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof logout>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getLogoutMutationOptions(options));
+    }
+
+export const getGetSessionUrl = () => {
+
+
+
+
+  return `/api/auth/session`
+}
+
+/**
+ * @summary Get the currently authenticated officer
+ */
+export const getSession = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthSession> => {
+
+  return customFetch<AuthSession>(getGetSessionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetSessionQueryKey = () => {
+    return [
+    `/api/auth/session`
+    ] as const;
+    }
+
+
+export const getGetSessionQueryOptions = <TData = Awaited<ReturnType<typeof getSession>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSessionQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSession>>> = ({ signal }) => getSession({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSession>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetSessionQueryResult = NonNullable<Awaited<ReturnType<typeof getSession>>>
+export type GetSessionQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the currently authenticated officer
+ */
+
+export function useGetSession<TData = Awaited<ReturnType<typeof getSession>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getSession>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetSessionQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 
 export const getGetDashboardStatsUrl = () => {
 
@@ -1287,6 +1440,160 @@ export function useGetTemporalAnalysis<TData = Awaited<ReturnType<typeof getTemp
 
 
 
+export const getGetFusionAnalysisUrl = (id: string,) => {
+
+
+
+
+  return `/api/projects/${id}/fusion-analysis`
+}
+
+/**
+ * @summary Get the combined evidence-fusion result across all five lenses (confidence-aware, not a fraud probability)
+ */
+export const getFusionAnalysis = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<EvidenceFusion> => {
+
+  return customFetch<EvidenceFusion>(getGetFusionAnalysisUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetFusionAnalysisQueryKey = (id: string,) => {
+    return [
+    `/api/projects/${id}/fusion-analysis`
+    ] as const;
+    }
+
+
+export const getGetFusionAnalysisQueryOptions = <TData = Awaited<ReturnType<typeof getFusionAnalysis>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFusionAnalysis>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFusionAnalysisQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFusionAnalysis>>> = ({ signal }) => getFusionAnalysis(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFusionAnalysis>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetFusionAnalysisQueryResult = NonNullable<Awaited<ReturnType<typeof getFusionAnalysis>>>
+export type GetFusionAnalysisQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the combined evidence-fusion result across all five lenses (confidence-aware, not a fraud probability)
+ */
+
+export function useGetFusionAnalysis<TData = Awaited<ReturnType<typeof getFusionAnalysis>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getFusionAnalysis>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetFusionAnalysisQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetInconsistenciesUrl = (id: string,) => {
+
+
+
+
+  return `/api/projects/${id}/inconsistencies`
+}
+
+/**
+ * @summary Get structured cross-modal inconsistencies — evidence dimensions that independently tell a materially inconsistent story
+ */
+export const getInconsistencies = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<CrossModalAnalysis> => {
+
+  return customFetch<CrossModalAnalysis>(getGetInconsistenciesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetInconsistenciesQueryKey = (id: string,) => {
+    return [
+    `/api/projects/${id}/inconsistencies`
+    ] as const;
+    }
+
+
+export const getGetInconsistenciesQueryOptions = <TData = Awaited<ReturnType<typeof getInconsistencies>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInconsistencies>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetInconsistenciesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getInconsistencies>>> = ({ signal }) => getInconsistencies(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getInconsistencies>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetInconsistenciesQueryResult = NonNullable<Awaited<ReturnType<typeof getInconsistencies>>>
+export type GetInconsistenciesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get structured cross-modal inconsistencies — evidence dimensions that independently tell a materially inconsistent story
+ */
+
+export function useGetInconsistencies<TData = Awaited<ReturnType<typeof getInconsistencies>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getInconsistencies>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetInconsistenciesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getGetInvestigationUrl = (id: string,) => {
 
 
@@ -1436,6 +1743,155 @@ export const useUpdateInvestigation = <TError = ErrorType<unknown>,
       return useMutation(getUpdateInvestigationMutationOptions(options));
     }
 
+export const getListProgressRecordsUrl = (id: string,) => {
+
+
+
+
+  return `/api/projects/${id}/progress`
+}
+
+/**
+ * @summary List a project's dated progress reports (real evidence consumed by the temporal, cross-modal, fusion, and verification-priority engines)
+ */
+export const listProgressRecords = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<ProgressRecord[]> => {
+
+  return customFetch<ProgressRecord[]>(getListProgressRecordsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProgressRecordsQueryKey = (id: string,) => {
+    return [
+    `/api/projects/${id}/progress`
+    ] as const;
+    }
+
+
+export const getListProgressRecordsQueryOptions = <TData = Awaited<ReturnType<typeof listProgressRecords>>, TError = ErrorType<unknown>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProgressRecords>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProgressRecordsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProgressRecords>>> = ({ signal }) => listProgressRecords(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProgressRecords>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProgressRecordsQueryResult = NonNullable<Awaited<ReturnType<typeof listProgressRecords>>>
+export type ListProgressRecordsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List a project's dated progress reports (real evidence consumed by the temporal, cross-modal, fusion, and verification-priority engines)
+ */
+
+export function useListProgressRecords<TData = Awaited<ReturnType<typeof listProgressRecords>>, TError = ErrorType<unknown>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProgressRecords>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProgressRecordsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateProgressRecordUrl = (id: string,) => {
+
+
+
+
+  return `/api/projects/${id}/progress`
+}
+
+/**
+ * @summary Record a new dated progress report for a project (P0-N — the minimal authenticated write path for progress evidence; re-run analysis afterward to pick it up)
+ */
+export const createProgressRecord = async (id: string,
+    progressRecordInput: ProgressRecordInput, options?: Parameters<typeof customFetch>[1]): Promise<ProgressRecord> => {
+
+  return customFetch<ProgressRecord>(getCreateProgressRecordUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(progressRecordInput)
+  }
+);}
+
+
+
+
+
+export const getCreateProgressRecordMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProgressRecord>>, TError,{id: string;data: BodyType<ProgressRecordInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProgressRecord>>, TError,{id: string;data: BodyType<ProgressRecordInput>}, TContext> => {
+
+const mutationKey = ['createProgressRecord'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProgressRecord>>, {id: string;data: BodyType<ProgressRecordInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createProgressRecord(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProgressRecordMutationResult = NonNullable<Awaited<ReturnType<typeof createProgressRecord>>>
+    export type CreateProgressRecordMutationBody = BodyType<ProgressRecordInput>
+    export type CreateProgressRecordMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record a new dated progress report for a project (P0-N — the minimal authenticated write path for progress evidence; re-run analysis afterward to pick it up)
+ */
+export const useCreateProgressRecord = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProgressRecord>>, TError,{id: string;data: BodyType<ProgressRecordInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createProgressRecord>>,
+        TError,
+        {id: string;data: BodyType<ProgressRecordInput>},
+        TContext
+      > => {
+      return useMutation(getCreateProgressRecordMutationOptions(options));
+    }
+
 export const getUploadProjectsUrl = () => {
 
 
@@ -1506,4 +1962,389 @@ export const useUploadProjects = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getUploadProjectsMutationOptions(options));
     }
+
+export const getListProjectImagesUrl = (id: string,) => {
+
+
+
+
+  return `/api/projects/${id}/images`
+}
+
+/**
+ * @summary List evidence images for a project
+ */
+export const listProjectImages = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<EvidenceImage[]> => {
+
+  return customFetch<EvidenceImage[]>(getListProjectImagesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProjectImagesQueryKey = (id: string,) => {
+    return [
+    `/api/projects/${id}/images`
+    ] as const;
+    }
+
+
+export const getListProjectImagesQueryOptions = <TData = Awaited<ReturnType<typeof listProjectImages>>, TError = ErrorType<void>>(id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjectImages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProjectImagesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProjectImages>>> = ({ signal }) => listProjectImages(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProjectImages>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProjectImagesQueryResult = NonNullable<Awaited<ReturnType<typeof listProjectImages>>>
+export type ListProjectImagesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List evidence images for a project
+ */
+
+export function useListProjectImages<TData = Awaited<ReturnType<typeof listProjectImages>>, TError = ErrorType<void>>(
+ id: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProjectImages>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProjectImagesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUploadProjectImageUrl = (id: string,) => {
+
+
+
+
+  return `/api/projects/${id}/images`
+}
+
+/**
+ * @summary Upload an evidence image for a project. Metadata (dimensions, SHA-256, perceptual hash, EXIF capture date/GPS) is extracted server-side from the actual file — never fabricated.
+ */
+export const uploadProjectImage = async (id: string, options?: Parameters<typeof customFetch>[1]): Promise<EvidenceImage> => {
+
+  return customFetch<EvidenceImage>(getUploadProjectImageUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getUploadProjectImageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadProjectImage>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadProjectImage>>, TError,{id: string}, TContext> => {
+
+const mutationKey = ['uploadProjectImage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadProjectImage>>, {id: string}> = (props) => {
+          const {id} = props ?? {};
+
+          return  uploadProjectImage(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadProjectImageMutationResult = NonNullable<Awaited<ReturnType<typeof uploadProjectImage>>>
+
+    export type UploadProjectImageMutationError = ErrorType<void>
+
+    /**
+ * @summary Upload an evidence image for a project. Metadata (dimensions, SHA-256, perceptual hash, EXIF capture date/GPS) is extracted server-side from the actual file — never fabricated.
+ */
+export const useUploadProjectImage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadProjectImage>>, TError,{id: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadProjectImage>>,
+        TError,
+        {id: string},
+        TContext
+      > => {
+      return useMutation(getUploadProjectImageMutationOptions(options));
+    }
+
+export const getGetProjectImageUrl = (id: string,
+    imageId: number,) => {
+
+
+
+
+  return `/api/projects/${id}/images/${imageId}`
+}
+
+/**
+ * @summary Get evidence image metadata
+ */
+export const getProjectImage = async (id: string,
+    imageId: number, options?: Parameters<typeof customFetch>[1]): Promise<EvidenceImage> => {
+
+  return customFetch<EvidenceImage>(getGetProjectImageUrl(id,imageId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProjectImageQueryKey = (id: string,
+    imageId: number,) => {
+    return [
+    `/api/projects/${id}/images/${imageId}`
+    ] as const;
+    }
+
+
+export const getGetProjectImageQueryOptions = <TData = Awaited<ReturnType<typeof getProjectImage>>, TError = ErrorType<void>>(id: string,
+    imageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProjectImageQueryKey(id,imageId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectImage>>> = ({ signal }) => getProjectImage(id,imageId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined && imageId !== null && imageId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProjectImage>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProjectImageQueryResult = NonNullable<Awaited<ReturnType<typeof getProjectImage>>>
+export type GetProjectImageQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get evidence image metadata
+ */
+
+export function useGetProjectImage<TData = Awaited<ReturnType<typeof getProjectImage>>, TError = ErrorType<void>>(
+ id: string,
+    imageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectImage>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProjectImageQueryOptions(id,imageId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getDeleteProjectImageUrl = (id: string,
+    imageId: number,) => {
+
+
+
+
+  return `/api/projects/${id}/images/${imageId}`
+}
+
+/**
+ * @summary Delete an evidence image (removes both the database record and the stored file)
+ */
+export const deleteProjectImage = async (id: string,
+    imageId: number, options?: Parameters<typeof customFetch>[1]): Promise<void> => {
+
+  return customFetch<void>(getDeleteProjectImageUrl(id,imageId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteProjectImageMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProjectImage>>, TError,{id: string;imageId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteProjectImage>>, TError,{id: string;imageId: number}, TContext> => {
+
+const mutationKey = ['deleteProjectImage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteProjectImage>>, {id: string;imageId: number}> = (props) => {
+          const {id,imageId} = props ?? {};
+
+          return  deleteProjectImage(id,imageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteProjectImageMutationResult = NonNullable<Awaited<ReturnType<typeof deleteProjectImage>>>
+
+    export type DeleteProjectImageMutationError = ErrorType<void>
+
+    /**
+ * @summary Delete an evidence image (removes both the database record and the stored file)
+ */
+export const useDeleteProjectImage = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProjectImage>>, TError,{id: string;imageId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteProjectImage>>,
+        TError,
+        {id: string;imageId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteProjectImageMutationOptions(options));
+    }
+
+export const getGetProjectImageFileUrl = (id: string,
+    imageId: number,) => {
+
+
+
+
+  return `/api/projects/${id}/images/${imageId}/file`
+}
+
+/**
+ * @summary Get the raw evidence image file bytes
+ */
+export const getProjectImageFile = async (id: string,
+    imageId: number, options?: Parameters<typeof customFetch>[1]): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetProjectImageFileUrl(id,imageId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProjectImageFileQueryKey = (id: string,
+    imageId: number,) => {
+    return [
+    `/api/projects/${id}/images/${imageId}/file`
+    ] as const;
+    }
+
+
+export const getGetProjectImageFileQueryOptions = <TData = Awaited<ReturnType<typeof getProjectImageFile>>, TError = ErrorType<void>>(id: string,
+    imageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectImageFile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProjectImageFileQueryKey(id,imageId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectImageFile>>> = ({ signal }) => getProjectImageFile(id,imageId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined && imageId !== null && imageId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProjectImageFile>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProjectImageFileQueryResult = NonNullable<Awaited<ReturnType<typeof getProjectImageFile>>>
+export type GetProjectImageFileQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the raw evidence image file bytes
+ */
+
+export function useGetProjectImageFile<TData = Awaited<ReturnType<typeof getProjectImageFile>>, TError = ErrorType<void>>(
+ id: string,
+    imageId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProjectImageFile>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProjectImageFileQueryOptions(id,imageId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 

@@ -11,4 +11,6 @@ export interface SignalScore {
   score: number;
   weight: number;
   contribution: number;
+  /** False when this lens could not produce a real score from available evidence (score is a placeholder, typically 0). */
+  evidenceSufficient?: boolean;
 }

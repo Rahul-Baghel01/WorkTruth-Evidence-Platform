@@ -7,13 +7,35 @@
  */
 
 export interface EvidenceImage {
-  id: string;
-  label: string;
-  captureDate: string;
+  id: number;
+  projectId: string;
   /** @nullable */
-  gps?: string | null;
-  quality: number;
-  similarity: number;
-  imageUrl: string;
-  matchedImageUrl: string;
+  originalFilename: string | null;
+  /** @nullable */
+  mimeType: string | null;
+  /** @nullable */
+  fileSizeBytes: number | null;
+  /** @nullable */
+  width: number | null;
+  /** @nullable */
+  height: number | null;
+  /**
+     * Actual EXIF capture timestamp, if present in the file. Never the upload time.
+     * @nullable
+     */
+  capturedAt: string | null;
+  /** @nullable */
+  gpsLatitude: number | null;
+  /** @nullable */
+  gpsLongitude: number | null;
+  /** @nullable */
+  gpsAccuracyMeters: number | null;
+  /** @nullable */
+  sha256: string | null;
+  /** @nullable */
+  perceptualHash: string | null;
+  /** @nullable */
+  label: string | null;
+  source: string;
+  uploadedAt: string;
 }

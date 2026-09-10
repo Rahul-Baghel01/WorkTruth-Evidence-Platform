@@ -5,7 +5,11 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
+import type { HealthStatusDatabase } from './healthStatusDatabase';
+import type { HealthStatusStatus } from './healthStatusStatus';
 
 export interface HealthStatus {
-  status: string;
+  status: HealthStatusStatus;
+  /** Whether the API could reach PostgreSQL just now (a lightweight SELECT 1). Absent optional external providers never affect this — WorkTruth's analysis pipeline has none today (see .env.example). */
+  database?: HealthStatusDatabase;
 }
