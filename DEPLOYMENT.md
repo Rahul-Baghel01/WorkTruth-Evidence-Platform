@@ -1,13 +1,21 @@
 # Deploying WorkTruth to Render
 
-WorkTruth deploys as **four** Render resources:
+> **This is the fully‑Free tier deployment (initial SIH).** There is **no
+> persistent disk** — Render does not allow disks on Free web services.
+> Uploaded evidence files therefore sit on the API container's **ephemeral**
+> filesystem and are **lost on every restart / redeploy**. Database rows
+> persist (until the Free Postgres expires — see below). See §2 and §7.
+
+WorkTruth deploys as **three** Render resources:
 
 | Resource | Render type | Serves |
 |---|---|---|
-| `worktruth-web` | Static Site | the built frontend (`artifacts/worktruth`) |
-| `worktruth-api` | Web Service (Node) | the Express API (`artifacts/api-server`) |
-| `worktruth-db` | PostgreSQL | the Drizzle-managed database |
-| `worktruth-evidence` | Persistent Disk (attached to `worktruth-api`) | uploaded evidence files |
+| `worktruth-web` | Static Site (Free) | the built frontend (`artifacts/worktruth`) |
+| `worktruth-api` | Web Service (Free, no disk) | the Express API (`artifacts/api-server`) |
+| `worktruth-db` | PostgreSQL (Free) | the Drizzle-managed database |
+
+Uploaded evidence files are written to a plain directory inside the API
+container (`EVIDENCE_UPLOAD_DIR`), not a mounted volume.
 
 The frontend and API are served from **different origins**, so the API uses
 `CORS_ORIGIN` + a `SameSite=None; Secure` session cookie, and the frontend
@@ -28,9 +36,10 @@ the root `package.json`, and `pnpm-lock.yaml`.
 ## 1. PostgreSQL — `worktruth-db`
 
 1. **New → PostgreSQL.** Name `worktruth-db`, database name `worktruth`, user
-   `worktruth`. Pick a region and reuse it for the API service.
-2. Free Postgres is **deleted after 30 days** — use a paid plan for anything
-   real.
+   `worktruth`, **plan Free**. Pick a region and reuse it for the API service.
+2. Free Postgres **expires ~30 days after creation** and is then deleted with
+   its data. Its rows persist normally until that point. Upgrade to a paid
+   plan before this deployment needs to outlive the demo.
 3. After it provisions, copy the **Internal Database URL** — that is
    `DATABASE_URL` for the API service (internal = same‑region, no egress).
 
@@ -60,6 +69,7 @@ non‑interactively. Re‑run it after any future schema change.
 |---|---|
 | Root Directory | `.` (repo root — it is a pnpm workspace) |
 | Runtime | Node |
+| Plan | Free |
 | Build Command | `pnpm install --frozen-lockfile && pnpm run build:api` |
 | Start Command | `pnpm run start:api` |
 | Health Check Path | `/api/healthz` |
@@ -73,26 +83,30 @@ Render so it reads the dashboard environment. The server binds `0.0.0.0:$PORT`
 `/api/healthz` returns `200 {"status":"ok","database":"ok"}` only when the API
 can reach Postgres, so Render will not route traffic to a broken deploy.
 
-### Persistent disk (evidence storage)
+### Evidence storage (ephemeral on Free — no disk)
 
-Add a disk to this service **before the first deploy**:
+Render **does not permit a persistent disk on a Free web service**, so this
+Blueprint attaches none. `EVIDENCE_UPLOAD_DIR` is set to `/tmp/worktruth-evidence`
+— an ordinary writable directory **inside the container**:
 
-| Setting | Value |
-|---|---|
-| Name | `worktruth-evidence` |
-| Mount Path | `/var/data` |
-| Size | 1 GB (grow later) |
+- It is created automatically on the first upload.
+- The path‑traversal / extension checks in
+  `artifacts/api-server/src/lib/storage.ts` are unchanged — uploads stay
+  confined to that root.
+- **It is ephemeral.** Every deploy, every restart, and Render's periodic
+  recycling of Free instances wipes it. Uploaded evidence images can and will
+  disappear; database rows that reference them remain.
 
-Then set `EVIDENCE_UPLOAD_DIR=/var/data/uploads` (below). The directory is
-created on first upload. The existing path‑traversal / extension checks in
-`artifacts/api-server/src/lib/storage.ts` are unchanged — uploads are still
-confined to that root. Without the disk, uploads land on the container's
-ephemeral filesystem and vanish on every deploy/restart (the API logs a
-warning at startup if `EVIDENCE_UPLOAD_DIR` is unset in production).
+`EVIDENCE_UPLOAD_DIR` stays fully configurable and no disk path is baked into
+the application. To make evidence durable later, without any code change:
 
-> A single persistent disk means this API service **cannot** be scaled beyond
-> one instance. That is fine for now; moving to object storage (S3‑compatible)
-> is the path to horizontal scaling and is deliberately out of scope here.
+1. Move `worktruth-api` to a paid plan.
+2. Add a disk (`mountPath: /var/data`, e.g. 1 GB) — in `render.yaml` there is
+   a commented `disk:` block ready to uncomment.
+3. Change `EVIDENCE_UPLOAD_DIR` to `/var/data/uploads` and redeploy.
+
+(A single disk also pins the API to one instance; the scale‑out path is
+external S3‑compatible object storage — out of scope for the Free demo.)
 
 ### API environment variables
 
@@ -100,7 +114,7 @@ warning at startup if `EVIDENCE_UPLOAD_DIR` is unset in production).
 |---|---|---|
 | `NODE_ENV` | `production` | Secure cookie; disables demo‑data auto‑seed |
 | `DATABASE_URL` | *Internal Database URL of `worktruth-db`* | |
-| `EVIDENCE_UPLOAD_DIR` | `/var/data/uploads` | must be under the disk mount |
+| `EVIDENCE_UPLOAD_DIR` | `/tmp/worktruth-evidence` | writable container dir; **ephemeral** on Free (no disk). Point at a disk mount path once one exists |
 | `CORS_ORIGIN` | `https://worktruth-web.onrender.com` | the **frontend** origin, exact, no trailing slash; fill in after §3. Comma‑separate for multiple (custom domain + onrender URL) |
 | `SEED_OFFICER_EMAIL` | *your officer login email* | secret |
 | `SEED_OFFICER_PASSWORD` | *a strong password* | secret — never commit |
@@ -122,6 +136,7 @@ API request after these are set — no seed command required in production.
 | Setting | Value |
 |---|---|
 | Root Directory | `.` |
+| Plan | Free |
 | Build Command | `pnpm install --frozen-lockfile && pnpm run build:frontend` |
 | Publish Directory | `artifacts/worktruth/dist/public` |
 
@@ -176,7 +191,7 @@ Minimal, behaviour‑preserving:
 | `artifacts/worktruth/src/vite-env.d.ts` | new — types `VITE_API_BASE_URL` |
 | `artifacts/worktruth/vite.config.ts` | unchanged — local `/api` proxy kept |
 | root `package.json` | `packageManager`, `engines`, and `build:api` / `build:frontend` / `start:api` scripts |
-| `.node-version`, `render.yaml` | new |
+| `.node-version`, `render.yaml` | new (`render.yaml` = Free‑tier Blueprint: no disk, ephemeral evidence) |
 
 Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
 
@@ -190,11 +205,11 @@ Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
 - **API start command:** `pnpm run start:api`
 - **Health check path:** `/api/healthz`
 - **Database schema init:** `DATABASE_URL=<external url> pnpm db:push`
-- **Evidence disk mount:** `/var/data` → env `EVIDENCE_UPLOAD_DIR=/var/data/uploads`
+- **Evidence storage (Free):** `EVIDENCE_UPLOAD_DIR=/tmp/worktruth-evidence` — ephemeral container directory, **no disk**. Paid upgrade → disk at `/var/data`, then `EVIDENCE_UPLOAD_DIR=/var/data/uploads`
 
 ### Required environment variables
 
-**API service** — `NODE_ENV=production`, `DATABASE_URL`, `EVIDENCE_UPLOAD_DIR=/var/data/uploads`, `CORS_ORIGIN`, `SEED_OFFICER_EMAIL`, `SEED_OFFICER_PASSWORD` (+ optional `SEED_OFFICER_NAME`). `PORT` is provided by Render.
+**API service** — `NODE_ENV=production`, `DATABASE_URL`, `EVIDENCE_UPLOAD_DIR=/tmp/worktruth-evidence`, `CORS_ORIGIN`, `SEED_OFFICER_EMAIL`, `SEED_OFFICER_PASSWORD` (+ optional `SEED_OFFICER_NAME`). `PORT` is provided by Render.
 
 **Static site** — `VITE_API_BASE_URL` (build time).
 
@@ -202,15 +217,33 @@ Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
 
 ## 7. Remaining blockers / caveats
 
+### Free‑tier data durability (read this)
+
+- **Evidence files are ephemeral.** The Free deployment has **no persistent
+  disk**. Uploaded evidence images live only on the API container's local
+  filesystem and are **erased on every restart and every redeploy** (and when
+  Render recycles the idle Free instance). Do not treat uploaded evidence as
+  retained on the Free tier.
+- **PostgreSQL data persists — for now.** Rows written to `worktruth-db`
+  survive restarts and redeploys normally. However, **Render Free PostgreSQL
+  expires roughly 30 days after it is created** and is then deleted along with
+  all its data. Export anything you need before then, or upgrade the database
+  to a paid plan.
+- **Persistent evidence storage requires either** a paid Render plan with a
+  mounted disk (uncomment the `disk:` block in `render.yaml`, set
+  `EVIDENCE_UPLOAD_DIR=/var/data/uploads`) **or** external S3‑compatible object
+  storage. No application code change is needed for the disk option.
+
+### Other caveats
+
 - **Schema init is manual.** Run `pnpm db:push` against the new database once
-  (and after each schema change). Render's free tier has no pre‑deploy hook;
+  (and after each schema change). Render's Free tier has no pre‑deploy hook;
   on a paid plan you may set a Pre‑Deploy Command of `pnpm db:push`.
-- **Single API instance only** while evidence lives on a persistent disk. Not
-  a blocker for launch; object storage is the eventual fix.
-- **Free tiers sleep / expire.** Free web services cold‑start after inactivity
-  (health check may need a retry); free Postgres is deleted after 30 days.
-- **First request after deploy** does the officer‑account provisioning and is
-  slightly slower.
+- **Single API instance** (Free web services do not scale out anyway).
+- **Free services sleep.** Free web services cold‑start after ~15 min idle, so
+  the first request (and the Render health check) may need a retry.
+- **First request after deploy** also does the officer‑account provisioning
+  and is slightly slower.
 - **Database SSL:** use the **Internal** `DATABASE_URL` for the API service —
   it needs no SSL config and `node-postgres` connects to it as‑is. The
   External URL (used for `pnpm db:push` from your laptop) carries its own

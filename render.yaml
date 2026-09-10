@@ -20,10 +20,15 @@ services:
     buildCommand: pnpm install --frozen-lockfile && pnpm run build:api
     startCommand: pnpm run start:api
     healthCheckPath: /api/healthz
-    disk:
-      name: worktruth-evidence
-      mountPath: /var/data
-      sizeGB: 1
+    # No persistent disk on the Free plan (Render rejects disks on Free web
+    # services). Evidence files therefore live on the container's EPHEMERAL
+    # filesystem and are lost on every restart/redeploy — see DEPLOYMENT.md.
+    # To make evidence durable: move this service to a paid plan and add a
+    #   disk:
+    #     name: worktruth-evidence
+    #     mountPath: /var/data
+    #     sizeGB: 1
+    # block here, then set EVIDENCE_UPLOAD_DIR to /var/data/uploads.
     envVars:
       - key: NODE_ENV
         value: production
@@ -31,8 +36,12 @@ services:
         fromDatabase:
           name: worktruth-db
           property: connectionString
+      # Ephemeral on Free (no disk mounted here). The app just needs a
+      # writable directory; it is created on first upload and the existing
+      # path-traversal checks are unchanged. Point this at a mounted disk
+      # path once one exists.
       - key: EVIDENCE_UPLOAD_DIR
-        value: /var/data/uploads
+        value: /tmp/worktruth-evidence
       # The frontend's public origin. Fill in after the static site is created
       # (e.g. https://worktruth-web.onrender.com). Comma-separate for several.
       - key: CORS_ORIGIN
