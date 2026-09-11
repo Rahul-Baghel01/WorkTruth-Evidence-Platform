@@ -49,12 +49,31 @@ The app never migrates automatically. From your machine, with the database's
 **External** URL:
 
 ```bash
-DATABASE_URL="postgresql://worktruth:...@...render.com/worktruth" pnpm db:push
+DATABASE_URL="postgresql://worktruth:...@...render.com/worktruth" pnpm db:migrate
 ```
 
-`pnpm db:push` (drizzle-kit push) creates every table from
-`lib/db/src/schema/index.ts`. Against a brand‑new empty database it runs
-non‑interactively. Re‑run it after any future schema change.
+**Use `pnpm db:migrate`, not `pnpm db:push`, against Render.** `db:push` (the
+`drizzle-kit` CLI) introspects the live database's catalogs first to compute a
+diff, and that introspection step is what has been observed to hang/error
+against Render Postgres — independent of the schema itself. `db:migrate`
+(`lib/db/src/migrate.ts`) is a small standalone `pg` script instead: it
+applies the pre‑generated SQL in `lib/db/drizzle/` directly (no catalog
+introspection, no `drizzle-kit`/`drizzle-orm` migrator involved at all), and
+tracks what it already applied in its own `public."__worktruth_migrations"`
+table, applying each migration's statements plus its tracking‑row insert in
+one transaction — so it's safe to run again (already‑applied migrations are
+skipped, nothing is re‑run or dropped, nothing existing is touched).
+Deliberately **never** issues `CREATE SCHEMA` — Render's managed Postgres role
+here can create tables in the pre‑existing `public` schema (all it needs —
+see `lib/db/drizzle/0000_last_sauron.sql`) but not a brand‑new schema, which
+is what made drizzle-orm's own built‑in migrator fail on this database (it
+unconditionally creates a `drizzle` schema for its tracking table).
+`pnpm db:push`/`push-force` still work for local development against the
+docker‑compose database.
+
+After any future schema change: `pnpm --filter @workspace/db run generate`
+(writes a new file under `lib/db/drizzle/` — commit it), then `db:migrate`
+against each target database.
 
 > No demo data is inserted. `NODE_ENV=production` on the API stops the
 > 20‑project demo dataset from ever being auto‑seeded (see §5).
@@ -190,7 +209,10 @@ Minimal, behaviour‑preserving:
 | `artifacts/worktruth/src/main.tsx` | calls `setBaseUrl(VITE_API_BASE_URL)` when set |
 | `artifacts/worktruth/src/vite-env.d.ts` | new — types `VITE_API_BASE_URL` |
 | `artifacts/worktruth/vite.config.ts` | unchanged — local `/api` proxy kept |
-| root `package.json` | `packageManager`, `engines`, and `build:api` / `build:frontend` / `start:api` scripts |
+| root `package.json` | `packageManager`, `engines`, `build:api` / `build:frontend` / `start:api` / `db:migrate` scripts |
+| `lib/db/src/migrate.ts` | new — programmatic schema bootstrap (`pnpm db:migrate`), for when the `drizzle-kit` CLI itself fails against the target database (see §1) |
+| `lib/db/drizzle/` | new — the generated SQL migration + metadata (`drizzle-kit generate`), committed so `db:migrate` has something to apply |
+| `lib/db/package.json` | added `generate` / `migrate` scripts, `tsx` devDependency |
 | `.node-version`, `render.yaml` | new (`render.yaml` = Free‑tier Blueprint: no disk, ephemeral evidence) |
 
 Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
@@ -204,7 +226,7 @@ Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
 - **API build command:** `pnpm install --frozen-lockfile && pnpm run build:api`
 - **API start command:** `pnpm run start:api`
 - **Health check path:** `/api/healthz`
-- **Database schema init:** `DATABASE_URL=<external url> pnpm db:push`
+- **Database schema init:** `DATABASE_URL=<external url> pnpm db:migrate` (use `db:push` only for local dev — see §1)
 - **Evidence storage (Free):** `EVIDENCE_UPLOAD_DIR=/tmp/worktruth-evidence` — ephemeral container directory, **no disk**. Paid upgrade → disk at `/var/data`, then `EVIDENCE_UPLOAD_DIR=/var/data/uploads`
 
 ### Required environment variables
@@ -236,9 +258,13 @@ Local development is unchanged: `pnpm db:up && pnpm db:setup && pnpm dev`.
 
 ### Other caveats
 
-- **Schema init is manual.** Run `pnpm db:push` against the new database once
-  (and after each schema change). Render's Free tier has no pre‑deploy hook;
-  on a paid plan you may set a Pre‑Deploy Command of `pnpm db:push`.
+- **Schema init is manual.** Run `pnpm db:migrate` against the target database
+  once (and after each future schema change — `generate` then `migrate`).
+  Render's Free tier has no pre‑deploy hook; on a paid plan you may set a
+  Pre‑Deploy Command of `pnpm db:migrate` instead of running it by hand.
+  Prefer `db:migrate` over `db:push`/`drizzle-kit push|check|migrate` against
+  Render — the `drizzle-kit` CLI's own introspection has been observed to
+  hang/error there (see §1); `db:migrate` avoids that code path entirely.
 - **Single API instance** (Free web services do not scale out anyway).
 - **Free services sleep.** Free web services cold‑start after ~15 min idle, so
   the first request (and the Render health check) may need a retry.
