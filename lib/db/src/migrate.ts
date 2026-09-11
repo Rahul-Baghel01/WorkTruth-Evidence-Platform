@@ -49,6 +49,22 @@
 // read, logged, or included in any error message here (pg driver errors
 // from this codepath carry only a message/code, e.g. "relation already
 // exists" — never the connection string).
+//
+// -----------------------------------------------------------------------
+// TLS
+// -----------------------------------------------------------------------
+// Render's Postgres (at least the connection string reached from outside
+// Render's own network, which is what this script uses to bootstrap a
+// database from a developer machine) rejects a plaintext connection
+// outright ("FATAL: SSL/TLS required") — `pg` does not infer TLS from the
+// connection string alone here, so it must be requested explicitly via the
+// `ssl` Pool option. Render's server certificate is not chained to a CA in
+// Node's default trust store, so verifying it the normal way fails even
+// once TLS is requested; `rejectUnauthorized: false` (confirmed to work
+// against this exact database in prior direct-connection testing) still
+// encrypts the connection — it only skips hostname/CA-chain verification,
+// which is what every Render Postgres client guide recommends since Render
+// doesn't publish a client-verifiable CA. See resolveSsl() below.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -66,6 +82,32 @@ if (!process.env.DATABASE_URL) {
 // Resolve relative to this file (not process.cwd()) so this works the same
 // way regardless of the directory it's invoked from.
 const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
+
+// DATABASE_SSL explicitly forces the decision ("require" | "disable") when
+// set — for any target where host-based detection below would guess wrong.
+// Left unset (the normal case), the target is detected by host: the only
+// non-TLS Postgres this project talks to is the local docker-compose
+// instance, always reached at localhost — every other host (Render
+// included) requires TLS. Never logs `connectionString`.
+function resolveSsl(connectionString: string): false | { rejectUnauthorized: false } {
+  const override = process.env.DATABASE_SSL?.trim().toLowerCase();
+  if (override === "disable" || override === "false") return false;
+  if (override === "require" || override === "true") return { rejectUnauthorized: false };
+
+  let host: string;
+  try {
+    host = new URL(connectionString).hostname;
+  } catch {
+    // Not parseable as a URL (e.g. a bare host:port/db form with no
+    // scheme) — fail safe toward encryption rather than silently
+    // connecting in plaintext to an unrecognized target.
+    return { rejectUnauthorized: false };
+  }
+  // WHATWG URL keeps the brackets on a bracketed IPv6 host ("[::1]"), so
+  // check both forms.
+  const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  return isLocal ? false : { rejectUnauthorized: false };
+}
 
 // Lives in "public" (see header comment) — leading double underscore keeps
 // it visually distinct from every real `worktruth_*` application table.
@@ -98,7 +140,8 @@ function loadMigrations(): Migration[] {
 }
 
 async function main() {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const connectionString = process.env.DATABASE_URL!;
+  const pool = new Pool({ connectionString, ssl: resolveSsl(connectionString) });
   const client = await pool.connect();
   try {
     await client.query(

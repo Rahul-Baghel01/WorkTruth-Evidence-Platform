@@ -71,6 +71,13 @@ unconditionally creates a `drizzle` schema for its tracking table).
 `pnpm db:push`/`push-force` still work for local development against the
 docker‑compose database.
 
+`db:migrate` also handles TLS: Render's Postgres rejects a plaintext
+connection, and its certificate isn't verifiable via Node's default CA trust
+store, so a remote host gets `ssl: { rejectUnauthorized: false }` (encrypted,
+just not CA‑verified — required in practice, see `migrate.ts`'s own header
+comment) automatically; `localhost` (docker‑compose) gets none. Override with
+`DATABASE_SSL=require|disable` only if that auto‑detection ever guesses wrong.
+
 After any future schema change: `pnpm --filter @workspace/db run generate`
 (writes a new file under `lib/db/drizzle/` — commit it), then `db:migrate`
 against each target database.
