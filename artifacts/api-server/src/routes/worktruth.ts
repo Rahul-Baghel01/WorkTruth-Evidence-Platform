@@ -53,6 +53,7 @@ import {
 } from "@workspace/api-zod";
 import {
   buildAnalysis,
+  buildSeedEvidenceImageBuffer,
   ensureSeeded,
   getProject,
   listProjectRows,
@@ -576,6 +577,23 @@ router.get("/projects/:id/images/:imageId/file", async (req, res): Promise<void>
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.send(buffer);
   } catch {
+    // Render's Free-tier filesystem is ephemeral — a seed_demo image's file
+    // under EVIDENCE_UPLOAD_DIR can be lost across a deploy/restart even
+    // though its DB row (GPS, capture date, hash, label) survives in
+    // Postgres. That file is a deterministic synthetic image with no
+    // project-specific pixel data (see buildSeedEvidenceImageBuffer's doc
+    // comment), so regenerating it here reproduces the exact same bytes
+    // already hashed into this row's sha256/perceptualHash at seed time —
+    // not a different or fabricated image. Never applies to a real officer
+    // upload (source is "officer_upload" there): a genuinely lost real
+    // upload still 404s, exactly as before.
+    if (row.source === "seed_demo") {
+      const buffer = await buildSeedEvidenceImageBuffer();
+      res.setHeader("Content-Type", row.mimeType ?? "image/png");
+      res.setHeader("Cache-Control", "private, max-age=86400");
+      res.send(buffer);
+      return;
+    }
     res.status(404).json({ error: "Stored file not found" });
   }
 });

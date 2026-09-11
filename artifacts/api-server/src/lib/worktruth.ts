@@ -136,12 +136,15 @@ async function seedProgressRecordsFromScalar(project: { id: string; progress: nu
 // A small synthetic (in-process generated, not downloaded/redistributed)
 // checkerboard image — genuine spatial structure, so its SHA-256 and
 // perceptual hash are real computed values from real bytes, exactly like an
-// uploaded photo would get (see image-processing.ts). GPS/capturedAt are
-// seed-authored DB values near the project's own declared location (a
-// deterministic small offset, not Math.random) — they are not claimed to be
-// EXIF-extracted, the same way the project's own latitude/longitude are
-// seed-authored rather than derived from anything.
-async function seedEvidenceImage(project: { id: string; latitude: number; longitude: number; startDate: string }, variant: number) {
+// uploaded photo would get (see image-processing.ts). Deterministic: no
+// project-specific pixel data, so every call produces byte-identical output.
+// Exported so the image-serving route (routes/worktruth.ts) can regenerate
+// the exact same bytes on demand if a seed_demo row's stored file is ever
+// missing — see that route's own comment for why that happens on Render's
+// ephemeral filesystem and why regenerating (rather than 404ing) is honest:
+// it reproduces the identical bytes already hashed into that row's sha256/
+// perceptualHash at seed time, not a different or fabricated image.
+export async function buildSeedEvidenceImageBuffer(): Promise<Buffer> {
   const size = 48;
   const cell = 12;
   const colorA = 0x2244ffff;
@@ -152,7 +155,15 @@ async function seedEvidenceImage(project: { id: string; latitude: number; longit
       if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2 === 1) image.setPixelColor(colorB, x, y);
     }
   }
-  const buffer = await image.getBuffer(JimpMime.png);
+  return image.getBuffer(JimpMime.png);
+}
+
+// GPS/capturedAt are seed-authored DB values near the project's own
+// declared location (a deterministic small offset, not Math.random) — they
+// are not claimed to be EXIF-extracted, the same way the project's own
+// latitude/longitude are seed-authored rather than derived from anything.
+async function seedEvidenceImage(project: { id: string; latitude: number; longitude: number; startDate: string }, variant: number) {
+  const buffer = await buildSeedEvidenceImageBuffer();
   const metadata = await extractImageMetadata(buffer);
   const sha256 = sha256Hex(buffer);
   const storageKey = await evidenceStorage.save(project.id, buffer, "png");
