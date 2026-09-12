@@ -1,4 +1,4 @@
-import { type ComponentType, type ReactNode, useState } from 'react';
+import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetDashboardStatsQueryKey, getGetSessionQueryKey, useGetDashboardStats, useGetSession, useLogout } from '@workspace/api-client-react';
@@ -78,6 +78,29 @@ export const priorityTone = (priority?: string) => {
 };
 
 export const firstName = (name?: string) => name?.trim().split(/\s+/)[0];
+
+// Pure so it's trivially testable — based on the browser's local hour, never
+// a server value, per the requirement that the greeting follow the viewer's
+// own timezone with no backend involvement.
+export function getTimeGreeting(date: Date = new Date()): string {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 21) return 'Good evening';
+  return 'Good night';
+}
+
+// Re-evaluates once a minute so a page left open across a boundary (e.g.
+// 11:59am -> 12:00pm) updates without requiring a refresh, without the cost
+// of a high-frequency timer.
+export function useTimeGreeting(): string {
+  const [greeting, setGreeting] = useState(() => getTimeGreeting());
+  useEffect(() => {
+    const id = setInterval(() => setGreeting(getTimeGreeting()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return greeting;
+}
 
 export const initials = (name?: string) => {
   const parts = name?.trim().split(/\s+/).filter(Boolean) ?? [];
