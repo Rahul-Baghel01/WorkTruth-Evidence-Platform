@@ -1,7 +1,7 @@
 import { type ComponentType, type ReactNode, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
-import { getGetSessionQueryKey, useGetSession, useLogout } from '@workspace/api-client-react';
+import { getGetDashboardStatsQueryKey, getGetSessionQueryKey, useGetDashboardStats, useGetSession, useLogout } from '@workspace/api-client-react';
 import {
   Activity,
   AlertTriangle,
@@ -149,12 +149,18 @@ export function Shell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const sessionQuery = useGetSession({ query: { queryKey: getGetSessionQueryKey() } });
+  const statsQuery = useGetDashboardStats({ query: { queryKey: getGetDashboardStatsQueryKey() } });
+  const stats = statsQuery.data;
   const logout = useLogout();
   const user = sessionQuery.data?.user;
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const active = (href: string) => location === href || (href !== '/dashboard' && location.startsWith(href));
   const handleSignOut = () => { logout.mutate(undefined, { onSettled: () => { queryClient.clear(); setLocation('/'); } }); };
+  const criticalCount = stats?.criticalRisk ?? 0;
+  const highPriorityCount = stats?.verificationRequired ?? 0;
+  const hasAlerts = highPriorityCount > 0;
   return (
     <div className="app-shell">
       <aside className={cn('sidebar', collapsed && 'sidebar-collapsed', open && 'sidebar-open')}>
@@ -169,7 +175,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="nav-label">Monitor</div>
           {navItems.map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href} className={cn('nav-item', active(href) && 'nav-item-active')} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`}>
-              <Icon size={17} strokeWidth={active(href) ? 2.4 : 1.8} /><span>{label}</span>{href === '/projects' && <span className="nav-count">24</span>}
+              <Icon size={17} strokeWidth={active(href) ? 2.4 : 1.8} /><span>{label}</span>{href === '/projects' && <span className="nav-count">{stats?.totalProjects ?? '—'}</span>}
             </Link>
           ))}
           <div className="nav-label nav-label-spaced">Governance</div>
@@ -193,7 +199,20 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="topbar-crumb"><span className="crumb-mobile">Field desk</span><span className="crumb-sep">/</span><span>{navItems.find((item) => active(item.href))?.label ?? (active('/settings') ? 'Method & access' : active('/admin') ? 'User Management' : 'Workspace')}</span></div>
           <div className="topbar-actions">
             <button className="icon-button" data-testid="button-help" aria-label="Help"><CircleHelp size={18} /></button>
-            <button className="icon-button has-dot" data-testid="button-notifications" aria-label="Notifications"><Bell size={18} /></button>
+            <div className="alerts-anchor">
+              <button className={cn('icon-button', hasAlerts && 'has-dot')} data-testid="button-notifications" aria-label="Verification alerts" onClick={() => setAlertsOpen((v) => !v)}><Bell size={18} /></button>
+              {alertsOpen && (
+                <div className="alerts-popover" data-testid="panel-verification-alerts">
+                  <div className="alerts-popover-head"><span>VERIFICATION ALERTS</span><button className="icon-button" aria-label="Close" onClick={() => setAlertsOpen(false)}><X size={14} /></button></div>
+                  {hasAlerts ? (
+                    <p>{highPriorityCount} project{highPriorityCount === 1 ? '' : 's'} at high or critical priority — officer review recommended{criticalCount > 0 ? ` (${criticalCount} critical).` : '.'}</p>
+                  ) : (
+                    <p>No high-priority evidence inconsistencies right now.</p>
+                  )}
+                  <p className="alerts-popover-note">In-app only today. External SMS/notification integration — Phase 2.</p>
+                </div>
+              )}
+            </div>
             <div className="topbar-divider" />
             <div className="avatar avatar-navy">{initials(user?.name)}</div><span className="topbar-user">{user?.name ?? ''}</span>
           </div>
@@ -208,8 +227,8 @@ export function PublicHeader() {
   return <header className="public-header"><Link href="/" className="brand-link" data-testid="link-public-brand"><WorkTruthMark /></Link><nav className="public-nav"><a href="#how-it-works" data-testid="link-how-it-works">How it works</a><a href="#methodology" data-testid="link-methodology">Methodology</a><Link href="/login" className="button button-dark button-small" data-testid="link-public-login">Officer sign in <ChevronRight size={15} /></Link></nav></header>;
 }
 
-export function MetricCard({ label, value, detail, icon: Icon, tone = 'navy', trend }: { label: string; value: string | number; detail: string; icon: typeof Activity; tone?: string; trend?: 'up' | 'down' }) {
-  return <Card className={cn('metric-card', `metric-${tone}`)}><div className="metric-top"><span className="metric-label">{label}</span><span className="metric-icon"><Icon size={17} /></span></div><div className="metric-value">{value}</div><div className="metric-detail">{trend && (trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />)}{detail}</div></Card>;
+export function MetricCard({ label, value, detail, icon: Icon, tone = 'navy', trend, title }: { label: string; value: string | number; detail: string; icon: typeof Activity; tone?: string; trend?: 'up' | 'down'; title?: string }) {
+  return <Card className={cn('metric-card', `metric-${tone}`)} title={title}><div className="metric-top"><span className="metric-label">{label}</span><span className="metric-icon"><Icon size={17} /></span></div><div className="metric-value">{value}</div><div className="metric-detail">{trend && (trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />)}{detail}</div></Card>;
 }
 
 export function MiniBars({ values, labels, accent = 'navy' }: { values: number[]; labels?: string[]; accent?: string }) {
@@ -220,7 +239,7 @@ export function MiniBars({ values, labels, accent = 'navy' }: { values: number[]
 export function RiskRing({ score, priority }: { score: number; priority?: string }) {
   const tone = priorityTone(priority);
   const percentage = score <= 1 ? score * 100 : score;
-  return <div className={cn('risk-ring', `ring-${tone}`)} style={{ '--ring-progress': `${Math.min(100, Math.max(0, percentage)) * 3.6}deg` } as React.CSSProperties}><div><strong>{Math.round(percentage)}</strong><span>verification signal</span></div></div>;
+  return <div className={cn('risk-ring', `ring-${tone}`)} style={{ '--ring-progress': `${Math.min(100, Math.max(0, percentage)) * 3.6}deg` } as React.CSSProperties}><div><strong>{Math.round(percentage)}</strong><span>priority signal</span></div></div>;
 }
 
 // Evidence-sufficiency status (INSUFFICIENT/LIMITED/SUFFICIENT/STRONG evidence)
@@ -253,7 +272,7 @@ export function FusionPanel({ fusion }: { fusion?: EvidenceFusion }) {
       <div className="card-overline"><span>EVIDENCE FUSION</span><Layers3 size={14} /></div>
       <div className="fusion-summary">
         <div className="fusion-metric"><strong>{scorePercent != null ? `${scorePercent}%` : '—'}</strong><span>Evidence verification signal</span></div>
-        <div className="fusion-metric"><strong>{confidencePercent}%</strong><span>Overall confidence</span></div>
+        <div className="fusion-metric"><strong>{confidencePercent}%</strong><span>Overall Evidence Confidence</span></div>
         <EvidenceSufficiencyBadge status={fusion.status} />
       </div>
       <p className="fusion-note">This is an evidence-based verification signal derived from the five lenses below — not a probability of fraud. A human officer makes the final determination.</p>

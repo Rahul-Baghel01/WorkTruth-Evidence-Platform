@@ -358,7 +358,7 @@ export function evaluateFinancialEvidence(
       checks.push({
         name: "peer_outlier_high",
         severity: "HIGH",
-        message: `Expenditure-to-sanction ratio is above the ${peerRank.toFixed(0)}th percentile of ${peerGroup.size} comparable projects (${peerGroup.dimension}).`,
+        message: `Expenditure-to-sanction ratio is among the highest of ${peerGroup.size} comparable projects (${peerGroup.dimension}).`,
         observed: { expenditureRatio, peerMedian, percentileRank: peerRank },
         expected: `Consistent with the peer median ratio of ${peerMedian.toFixed(2)}`,
       });
@@ -366,7 +366,7 @@ export function evaluateFinancialEvidence(
       checks.push({
         name: "peer_outlier_low",
         severity: "LOW",
-        message: `Expenditure-to-sanction ratio is below the ${peerRank.toFixed(0)}th percentile of ${peerGroup.size} comparable projects (${peerGroup.dimension}) — unusually low reported expenditure relative to sanction.`,
+        message: `Expenditure-to-sanction ratio is among the lowest of ${peerGroup.size} comparable projects (${peerGroup.dimension}) — unusually low reported expenditure relative to sanction.`,
         observed: { expenditureRatio, peerMedian, percentileRank: peerRank },
       });
     }
