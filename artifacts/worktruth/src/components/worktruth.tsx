@@ -165,7 +165,7 @@ const navItems = [
 ];
 
 export function WorkTruthMark({ inverse = false }: { inverse?: boolean }) {
-  return <span className={cn('brand-mark', inverse && 'brand-mark-inverse')}><span className="brand-cross"><i /><i /></span><span>WORKTRUTH</span></span>;
+  return <span className={cn('brand-mark', inverse && 'brand-mark-inverse')}><span className="brand-cross"><i /><i /></span><span>WorkTruth</span></span>;
 }
 
 export function Shell({ children }: { children: ReactNode }) {
