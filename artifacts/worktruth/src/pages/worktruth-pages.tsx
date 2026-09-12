@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Ban,
   BarChart2,
   Check,
   CheckCircle2,
@@ -33,6 +34,8 @@ import {
   Sparkles,
   Target,
   Upload,
+  UserCog,
+  UserPlus,
   Waypoints,
   X,
 } from 'lucide-react';
@@ -55,10 +58,12 @@ import {
   getListProgressRecordsQueryKey,
   getListProjectImagesQueryKey,
   getListProjectsQueryKey,
+  getListUsersQueryKey,
   uploadProjectImage,
   useAnalyzeProject,
   useCreateProgressRecord,
   useCreateProject,
+  useCreateUser,
   useDeleteProjectImage,
   useGetDashboardActivity,
   useGetDashboardStats,
@@ -77,13 +82,16 @@ import {
   useListProgressRecords,
   useListProjectImages,
   useListProjects,
+  useListUsers,
   useLogin,
   useUpdateInvestigation,
   useUpdateProject,
+  useUpdateUserRole,
+  useUpdateUserStatus,
   useUploadProjects,
 } from '@workspace/api-client-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { EvidenceImage, Project, ProjectPriority, UploadResult, VisualAnalysis } from '@workspace/api-client-react';
+import type { EvidenceImage, ManagedUser, Project, ProjectPriority, Role, UploadResult, VisualAnalysis } from '@workspace/api-client-react';
 import {
   ActivityList,
   Card,
@@ -504,3 +512,152 @@ export function SettingsPage() {
   return <ShellPage><PageIntro eyebrow="METHOD & ACCESS" title="A clear method, by design." description="Understand how WorkTruth prioritises verification and configure the officer workspace around your review practice." action={saved ? <span className="saved-label"><Check size={14} /> Settings saved</span> : <button className="button button-dark" data-testid="button-save-settings" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2200); }}>Save settings <Check size={15} /></button>} /><div className="settings-layout"><div className="settings-main"><Card><SectionHeading eyebrow="RESPONSIBLE AI METHOD" title="Evidence fusion, not automated judgement." detail="The system routes attention; it does not certify a project." /><div className="method-rows"><MethodRow number="01" title="Signals stay separate" description="Financial, visual, geographic, temporal, and text checks are calculated independently before they are combined." /><MethodRow number="02" title="Weights are visible" description="Each signal’s contribution is shown on the investigation page so an officer can challenge the priority." /><MethodRow number="03" title="Context remains human" description="A flagged project is a prompt for verification, never a conclusion about delivery or intent." /></div></Card><Card><SectionHeading eyebrow="PRIORITISATION PROFILE" title="How much to sample" detail="This affects routing, not the underlying evidence." /><div className="sampling-options">{['Focused', 'Balanced', 'Broad'].map((option) => <button key={option} className={cn('sampling-option', sampling === option && 'sampling-selected')} data-testid={`button-sampling-${option.toLowerCase()}`} onClick={() => setSampling(option)}><span>{option}</span><small>{option === 'Focused' ? 'Only high and critical signals' : option === 'Broad' ? 'Include moderate variance' : 'Balanced officer workload'}</small>{sampling === option && <Check size={15} />}</button>)}</div></Card></div><div className="settings-side"><Card className="account-card"><div className="settings-avatar">{initials(user?.name)}</div><div className="eyebrow">SIGNED IN AS</div><h2>{user?.name ?? 'Loading…'}</h2><p>{user?.role ?? ''}</p><button className="button button-secondary" data-testid="button-manage-account">Manage account <ArrowRight size={14} /></button></Card><Card><SectionHeading eyebrow="WORKSPACE" title="Desk preferences" /><div className="preference-row"><div><strong>Evidence alerts</strong><span>Notify me when a critical signal appears.</span></div><button className={cn('toggle', notifications && 'toggle-on')} data-testid="button-toggle-alerts" onClick={() => setNotifications((value) => !value)}><i /></button></div><div className="preference-row"><div><strong>Show methodology notes</strong><span>Keep explanations expanded by default.</span></div><button className="toggle toggle-on" data-testid="button-toggle-method"><i /></button></div></Card><Card className="privacy-card"><LockKeyhole size={17} /><div><strong>Protected workspace</strong><span>Session activity and investigation updates are logged for accountability.</span></div></Card></div></div></ShellPage>;
 }
 function MethodRow({ number, title, description }: { number: string; title: string; description: string }) { return <div className="method-row"><span>{number}</span><div><h3>{title}</h3><p>{description}</p></div><CheckCircle2 size={17} /></div>; }
+
+// Admin User Management. Route-guarded by App.tsx (redirects a non-admin to
+// /dashboard) and nav-gated in the sidebar (Shell, worktruth.tsx) — but
+// neither of those is the real access control: every request this page
+// makes is checked server-side by requireAuth + requireAdmin regardless
+// (routes/admin.ts), so a non-admin reaching this code some other way still
+// gets a 403 from the API, not real data.
+const ROLE_OPTIONS: Role[] = ['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER'];
+const ROLE_LABEL: Record<Role, string> = { ADMIN: 'Administrator', OFFICER: 'Officer', VERIFIER: 'Verifier', VIEWER: 'Viewer' };
+const ROLE_DESCRIPTION: Record<Role, string> = {
+  ADMIN: 'Manage users; full access to every WorkTruth function.',
+  OFFICER: 'Dashboard, verification queue, investigation, and decisions.',
+  VERIFIER: 'Investigate evidence and record decisions — no user management.',
+  VIEWER: 'Read-only — cannot record a decision or manage users.',
+};
+
+// The API never returns raw error detail beyond the safe, deliberately-
+// written messages in routes/admin.ts (e.g. "A user with this email already
+// exists.") — this only branches on the HTTP status to choose which of
+// those situations to describe, never displays anything from the response
+// body itself.
+function adminErrorMessage(error: unknown, kind: 'create' | 'status' | 'role'): string {
+  const status = (error as { status?: number } | null)?.status;
+  if (kind === 'create') {
+    if (status === 409) return 'A user with this email already exists.';
+    if (status === 400) return 'Check the form — a required field is missing, the email is invalid, or the password is too short.';
+    return 'That account could not be created. Please try again.';
+  }
+  if (status === 400) return 'This is the last active administrator — at least one must remain.';
+  if (status === 404) return 'That user no longer exists.';
+  return kind === 'status' ? 'That status change could not be completed. Please try again.' : 'That role change could not be completed. Please try again.';
+}
+
+export function UserManagementPage() {
+  const usersQuery = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
+  const createUser = useCreateUser();
+  const updateStatus = useUpdateUserStatus();
+  const updateRole = useUpdateUserRole();
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'OFFICER' as Role });
+  const [formError, setFormError] = useState('');
+  const [actionError, setActionError] = useState('');
+
+  const submitCreate = (event: React.FormEvent) => {
+    event.preventDefault();
+    setFormError('');
+    createUser.mutate({ data: form }, {
+      onSuccess: () => { setShowCreate(false); setForm({ name: '', email: '', password: '', role: 'OFFICER' }); usersQuery.refetch(); },
+      onError: (error) => setFormError(adminErrorMessage(error, 'create')),
+    });
+  };
+
+  const toggleStatus = (target: ManagedUser) => {
+    setActionError('');
+    updateStatus.mutate({ id: target.id, data: { isActive: !target.isActive } }, {
+      onSuccess: () => usersQuery.refetch(),
+      onError: (error) => setActionError(adminErrorMessage(error, 'status')),
+    });
+  };
+
+  const changeRole = (target: ManagedUser, role: Role) => {
+    if (role === target.role) return;
+    setActionError('');
+    updateRole.mutate({ id: target.id, data: { role } }, {
+      onSuccess: () => usersQuery.refetch(),
+      onError: (error) => setActionError(adminErrorMessage(error, 'role')),
+    });
+  };
+
+  const pendingAction = updateStatus.isPending || updateRole.isPending;
+
+  return <ShellPage>
+    <PageIntro
+      eyebrow="ADMINISTRATION"
+      title="User Management"
+      description="Create and manage the officer, verifier, viewer, and administrator accounts that can sign in to WorkTruth."
+      action={<button className="button button-dark" data-testid="button-create-user" onClick={() => { setFormError(''); setShowCreate(true); }}><UserPlus size={16} /> Create User</button>}
+    />
+    {actionError && <div className="form-error"><AlertCircle size={15} />{actionError}</div>}
+    {usersQuery.isLoading ? (
+      <div className="queue-list">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-16" />)}</div>
+    ) : usersQuery.isError ? (
+      <ErrorState message="We could not load the user list." onRetry={() => usersQuery.refetch()} />
+    ) : usersQuery.data?.length ? (
+      <div className="users-wrap fade-up">
+        <div className="users-head"><span>Name</span><span>Email</span><span>Role</span><span>Status</span><span>Created</span><span>Actions</span></div>
+        <div className="users-list">
+          {usersQuery.data.map((target) => (
+            <UserManagementRow key={target.id} user={target} pending={pendingAction} onToggleStatus={() => toggleStatus(target)} onChangeRole={(role) => changeRole(target, role)} />
+          ))}
+        </div>
+      </div>
+    ) : (
+      <EmptyState icon={UserCog} title="No users yet" description="Create the first account to get started." />
+    )}
+    {showCreate && <CreateUserModal form={form} setForm={setForm} error={formError} pending={createUser.isPending} onClose={() => setShowCreate(false)} onSubmit={submitCreate} />}
+  </ShellPage>;
+}
+
+function UserManagementRow({ user, pending, onToggleStatus, onChangeRole }: { user: ManagedUser; pending: boolean; onToggleStatus: () => void; onChangeRole: (role: Role) => void }) {
+  return <div className="users-row" data-testid={`row-user-${user.id}`}>
+    <span className="users-name">{user.name}</span>
+    <span className="users-email">{user.email}</span>
+    <select className="users-role-select" data-testid={`select-role-${user.id}`} value={user.role} disabled={pending} onChange={(event) => onChangeRole(event.target.value as Role)}>
+      {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
+    </select>
+    <StatusPill status={user.isActive ? 'Active' : 'Disabled'} />
+    <span className="users-created">{dateLabel(user.createdAt)}</span>
+    <button
+      className={cn('button button-secondary button-small', !user.isActive && 'button-enable')}
+      data-testid={`button-toggle-status-${user.id}`}
+      onClick={onToggleStatus}
+      disabled={pending}
+    >
+      {user.isActive ? <><Ban size={13} /> Disable</> : <><Check size={13} /> Enable</>}
+    </button>
+  </div>;
+}
+
+function CreateUserModal({ form, setForm, error, pending, onClose, onSubmit }: {
+  form: { name: string; email: string; password: string; role: Role };
+  setForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; password: string; role: Role }>>;
+  error: string;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+}) {
+  return <div className="modal-scrim"><div className="modal-card"><div className="modal-head">
+    <div><div className="eyebrow">NEW ACCOUNT</div><h2>Create a WorkTruth user</h2></div>
+    <button className="icon-button" data-testid="button-close-create-user" onClick={onClose}><X size={18} /></button>
+  </div>
+  <form onSubmit={onSubmit} className="modal-form">
+    <label>Full name<input data-testid="input-new-user-name" type="text" value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} required autoComplete="name" /></label>
+    <label>Email address<input data-testid="input-new-user-email" type="email" value={form.email} onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))} required autoComplete="off" /></label>
+    <label>Temporary password<input data-testid="input-new-user-password" type="password" value={form.password} onChange={(e) => setForm((current) => ({ ...current, password: e.target.value }))} required minLength={8} autoComplete="new-password" /></label>
+    <label>Role
+      <select data-testid="select-new-user-role" value={form.role} onChange={(e) => setForm((current) => ({ ...current, role: e.target.value as Role }))}>
+        {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
+      </select>
+      <small className="field-hint">{ROLE_DESCRIPTION[form.role]}</small>
+    </label>
+    {error && <div className="form-error"><AlertCircle size={15} />{error}</div>}
+    <div className="modal-actions">
+      <button type="button" className="button button-secondary" data-testid="button-cancel-create-user" onClick={onClose}>Cancel</button>
+      <button type="submit" className="button button-dark" data-testid="button-submit-create-user" disabled={pending}>{pending ? 'Creating…' : 'Create Account'} <ArrowRight size={15} /></button>
+    </div>
+  </form>
+  </div></div>;
+}

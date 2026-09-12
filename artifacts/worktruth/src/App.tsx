@@ -15,6 +15,7 @@ import {
   ProjectsPage,
   SettingsPage,
   UploadPage,
+  UserManagementPage,
 } from '@/pages/worktruth-pages';
 import {
   Route,
@@ -45,6 +46,30 @@ function protect(component: ComponentType) {
   return () => <RequireAuth component={component} />;
 }
 
+// Same server-verified session check as RequireAuth, plus a role check —
+// this is a UX redirect only (straight to a page a non-admin can actually
+// use), never the actual access control: the admin API itself rejects a
+// non-admin with 403 regardless of what route the frontend renders, so
+// there is no path to the data even if this component were bypassed.
+function RequireAdmin({ component: Component }: { component: ComponentType }) {
+  const [, setLocation] = useLocation();
+  const sessionQuery = useGetSession({ query: { queryKey: getGetSessionQueryKey(), retry: false } });
+  const user = sessionQuery.data?.user;
+  useEffect(() => {
+    if (sessionQuery.isError) setLocation('/login');
+    else if (user && user.role !== 'ADMIN') setLocation('/dashboard');
+  }, [sessionQuery.isError, user, setLocation]);
+  if (sessionQuery.isLoading) {
+    return <div className="auth-check" role="status" aria-live="polite">Checking session…</div>;
+  }
+  if (sessionQuery.isError || !user || user.role !== 'ADMIN') return null;
+  return <Component />;
+}
+
+function protectAdmin(component: ComponentType) {
+  return () => <RequireAdmin component={component} />;
+}
+
 function Router() {
   return (
     // Keep a shared shell (sidebar, navbar) outside the boundary so it
@@ -60,6 +85,7 @@ function Router() {
         <Route path="/analytics" component={protect(AnalyticsPage)} />
         <Route path="/upload" component={protect(UploadPage)} />
         <Route path="/settings" component={protect(SettingsPage)} />
+        <Route path="/admin/users" component={protectAdmin(UserManagementPage)} />
         <Route component={NotFound} />
       </Switch>
     </RoutedErrorBoundary>

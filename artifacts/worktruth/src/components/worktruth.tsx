@@ -41,6 +41,7 @@ import {
   Sparkles,
   Target,
   UploadCloud,
+  UserCog,
   UserRound,
   X,
 } from 'lucide-react';
@@ -174,6 +175,10 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className="nav-label nav-label-spaced">Governance</div>
           <Link href="/settings" className={cn('nav-item', active('/settings') && 'nav-item-active')} data-testid="link-nav-methodology"><ShieldCheck size={17} /><span>Method & access</span></Link>
           <Link href="/settings" className="nav-item" data-testid="link-nav-settings"><Settings2 size={17} /><span>Workspace settings</span></Link>
+          {user?.role === 'ADMIN' && <>
+            <div className="nav-label nav-label-spaced">Administration</div>
+            <Link href="/admin/users" className={cn('nav-item', active('/admin/users') && 'nav-item-active')} data-testid="link-nav-user-management"><UserCog size={17} /><span>User Management</span></Link>
+          </>}
         </nav>
         <div className="sidebar-footer">
           <div className="desk-status"><span className="status-pulse" /><span>Evidence service operational</span></div>
@@ -185,7 +190,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <main className={cn('main-shell', collapsed && 'main-shell-wide')}>
         <header className="topbar">
           <button className="mobile-menu icon-button" data-testid="button-open-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={19} /></button>
-          <div className="topbar-crumb"><span className="crumb-mobile">Field desk</span><span className="crumb-sep">/</span><span>{navItems.find((item) => active(item.href))?.label ?? (active('/settings') ? 'Method & access' : 'Workspace')}</span></div>
+          <div className="topbar-crumb"><span className="crumb-mobile">Field desk</span><span className="crumb-sep">/</span><span>{navItems.find((item) => active(item.href))?.label ?? (active('/settings') ? 'Method & access' : active('/admin') ? 'User Management' : 'Workspace')}</span></div>
           <div className="topbar-actions">
             <button className="icon-button" data-testid="button-help" aria-label="Help"><CircleHelp size={18} /></button>
             <button className="icon-button has-dot" data-testid="button-notifications" aria-label="Notifications"><Bell size={18} /></button>

@@ -120,7 +120,10 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   const email = normalizeEmail(parsed.data.email);
   const [user] = await db.select().from(usersTable).where(eq(usersTable.email, email));
   const validPassword = await verifyPassword(parsed.data.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
-  if (!user || !validPassword) {
+  // A disabled account gets the exact same generic failure as a wrong
+  // password — never a distinct "account disabled" message, which would
+  // leak account existence/status to an unauthenticated caller.
+  if (!user || !validPassword || !user.isActive) {
     res.status(401).json({ error: "Invalid email or password" });
     return;
   }

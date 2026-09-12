@@ -102,6 +102,7 @@ export async function getSessionUser(token: string | undefined): Promise<Session
       name: usersTable.name,
       email: usersTable.email,
       role: usersTable.role,
+      isActive: usersTable.isActive,
       expiresAt: sessionsTable.expiresAt,
     })
     .from(sessionsTable)
@@ -109,6 +110,13 @@ export async function getSessionUser(token: string | undefined): Promise<Session
     .where(eq(sessionsTable.token, token));
   if (!row) return null;
   if (row.expiresAt.getTime() < Date.now()) {
+    await deleteSession(token);
+    return null;
+  }
+  // A disabled account has no valid session from this point on, even one
+  // issued before it was disabled — disabling an admin's session-based
+  // access takes effect immediately, not just at their next login attempt.
+  if (!row.isActive) {
     await deleteSession(token);
     return null;
   }

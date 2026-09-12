@@ -16,6 +16,7 @@ tags:
   - name: investigations
   - name: uploads
   - name: evidence
+  - name: admin
 paths:
   /healthz:
     get:
@@ -491,6 +492,90 @@ paths:
             image/*:
               schema: { type: string, format: binary }
         "404": { description: Not found }
+  /admin/users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List every WorkTruth user account. ADMIN role required.
+      responses:
+        "200":
+          description: All user accounts (never includes a password or password hash)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ManagedUser" }
+        "401": { description: Not authenticated }
+        "403": { description: "Authenticated, but not an ADMIN" }
+    post:
+      operationId: createUser
+      tags: [admin]
+      summary: Create a new officer/verifier/viewer/admin account. ADMIN role required. The new user does not get signed in — they authenticate normally afterward at /auth/login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserInput"
+      responses:
+        "201":
+          description: Created (never includes the password or its hash)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400": { description: "Invalid input (missing field, bad email, or a password that fails the policy)" }
+        "401": { description: Not authenticated }
+        "403": { description: "Authenticated, but not an ADMIN" }
+        "409": { description: A user with this email already exists }
+  /admin/users/{id}/status:
+    patch:
+      operationId: updateUserStatus
+      tags: [admin]
+      summary: Enable or disable a user account. ADMIN role required. Rejected if this would leave zero active ADMIN accounts.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserStatusInput"
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400": { description: "Would remove the last active administrator" }
+        "401": { description: Not authenticated }
+        "403": { description: "Authenticated, but not an ADMIN" }
+        "404": { description: User not found }
+  /admin/users/{id}/role:
+    patch:
+      operationId: updateUserRole
+      tags: [admin]
+      summary: Change a user's role. ADMIN role required. Rejected if this would demote the last active ADMIN.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRoleInput"
+      responses:
+        "200":
+          description: Updated account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400": { description: "Would leave zero active administrators" }
+        "401": { description: Not authenticated }
+        "403": { description: "Authenticated, but not an ADMIN" }
+        "404": { description: User not found }
 components:
   parameters:
     ProjectId:
@@ -501,6 +586,11 @@ components:
     ImageId:
       in: path
       name: imageId
+      required: true
+      schema: { type: integer }
+    UserId:
+      in: path
+      name: id
       required: true
       schema: { type: integer }
   schemas:
@@ -533,6 +623,45 @@ components:
         name: { type: string }
         email: { type: string }
         role: { type: string }
+    Role:
+      type: string
+      description: "ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users."
+      enum: [ADMIN, OFFICER, VERIFIER, VIEWER]
+    ManagedUser:
+      type: object
+      description: A user account as shown in Admin User Management. Never includes a password or password hash.
+      required: [id, name, email, role, isActive, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role:
+          $ref: "#/components/schemas/Role"
+        isActive: { type: boolean, description: "false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately." }
+        createdAt: { type: string }
+    CreateUserInput:
+      type: object
+      required: [name, email, password, role]
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        password:
+          type: string
+          minLength: 8
+          description: "Temporary password for the new account, subject to the same policy as any other WorkTruth password (minimum 8 characters). Hashed with the existing scrypt implementation before storage; never stored or returned as plaintext."
+        role:
+          $ref: "#/components/schemas/Role"
+    UpdateUserStatusInput:
+      type: object
+      required: [isActive]
+      properties:
+        isActive: { type: boolean }
+    UpdateUserRoleInput:
+      type: object
+      required: [role]
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
     Project:
       type: object
       required: [id, name, category, district, state, sanctionAmount, expenditure, progress, evidenceQuality, priority, primaryFinding, latitude, longitude, startDate, expectedCompletion]

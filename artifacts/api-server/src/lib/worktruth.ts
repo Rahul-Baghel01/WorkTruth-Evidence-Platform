@@ -14,6 +14,7 @@ import {
   type ProjectRow,
 } from "@workspace/db";
 import { hashPassword, normalizeEmail, resolveSeedPasswordAction } from "./auth";
+import type { Role } from "./authorization";
 import { computeFinancialAnalysis } from "./financial-engine";
 import { computeGeoAnalysis } from "./geo-engine";
 import { computeTemporalAnalysis } from "./temporal-engine";
@@ -302,24 +303,25 @@ function toProject(row: ProjectRow, computedPriority: string | undefined, primar
 
 export { toProject };
 
-// Provisions the one development officer account, but only when the operator
-// has explicitly configured it via env vars — never a hardcoded identity or
-// password. Runs independently of project seeding below so setting these
-// vars after the first boot (once projects already exist) still works.
+// Provisions one seed account from a trio of env vars, but only when the
+// operator has explicitly configured it — never a hardcoded identity or
+// password. Shared by ensureSeedUser (SEED_OFFICER_*) and the optional
+// SEED_ADMIN_* account below — one mechanism, not two.
 //
 // Idempotent and safe to re-run:
 //   - account missing            -> create it
 //   - account exists, password   -> rotate ONLY password_hash to a fresh
 //     no longer matches             salted scrypt hash of the configured
-//                                   password (id, name, role, sessions and
-//                                   every other record are left untouched)
+//                                   password (id, name, role, isActive,
+//                                   sessions and every other record are
+//                                   left untouched)
 //   - account exists, password   -> do nothing
 //     already matches
 // The configured plaintext is only ever passed to hashPassword/verifyPassword
 // and is never stored or logged.
-async function ensureSeedUser() {
-  const rawEmail = process.env.SEED_OFFICER_EMAIL;
-  const password = process.env.SEED_OFFICER_PASSWORD;
+async function ensureSeedAccount(config: { emailVar: string; passwordVar: string; nameVar: string; defaultName: string; role: Role }) {
+  const rawEmail = process.env[config.emailVar];
+  const password = process.env[config.passwordVar];
   if (!rawEmail || !password) return;
   // Same canonical form the login handler looks up by, so a configured
   // address with stray case/whitespace still resolves to one stable row.
@@ -339,8 +341,20 @@ async function ensureSeedUser() {
     return;
   }
 
-  const name = process.env.SEED_OFFICER_NAME || "Duty Officer";
-  await db.insert(usersTable).values({ email, name, role: "District Monitoring Officer", passwordHash });
+  const name = process.env[config.nameVar] || config.defaultName;
+  await db.insert(usersTable).values({ email, name, role: config.role, passwordHash, isActive: true });
+}
+
+// Runs independently of project seeding below so setting these vars after
+// the first boot (once projects already exist) still works. SEED_ADMIN_* is
+// optional — most deployments only ever need the seeded officer, and an
+// ADMIN account can always be created later from inside the app by an
+// existing admin; this just makes the very first admin bootstrappable
+// without one already existing (the chicken-and-egg problem admin user
+// management would otherwise have).
+async function ensureSeedUser() {
+  await ensureSeedAccount({ emailVar: "SEED_OFFICER_EMAIL", passwordVar: "SEED_OFFICER_PASSWORD", nameVar: "SEED_OFFICER_NAME", defaultName: "Duty Officer", role: "OFFICER" });
+  await ensureSeedAccount({ emailVar: "SEED_ADMIN_EMAIL", passwordVar: "SEED_ADMIN_PASSWORD", nameVar: "SEED_ADMIN_NAME", defaultName: "System Administrator", role: "ADMIN" });
 }
 
 // Whether the 20-project demo dataset may be auto-created. The officer

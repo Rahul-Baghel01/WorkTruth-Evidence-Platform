@@ -1,4 +1,5 @@
 import {
+  boolean,
   date,
   index,
   integer,
@@ -16,7 +17,16 @@ export const usersTable = pgTable("worktruth_users", {
   id: serial("id").primaryKey(),
   email: text("email").notNull().unique(),
   name: text("name").notNull(),
+  // Free-text historically, now a closed set enforced at the application
+  // boundary (see artifacts/api-server/src/lib/authorization.ts's ROLES) —
+  // kept as `text` rather than a Postgres enum so adding a role never needs
+  // a schema migration, matching every other loosely-typed status/type
+  // column in this schema (e.g. financialRecordsTable.type).
   role: text("role").notNull(),
+  // Account enable/disable (admin user management). Defaults to true so
+  // every pre-existing row (created before this column existed) is active
+  // the moment the migration runs — nobody is silently locked out.
+  isActive: boolean("is_active").notNull().default(true),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -220,3 +230,4 @@ export type ProjectRow = typeof projectsTable.$inferSelect;
 export type ProjectInsert = z.infer<typeof insertProjectSchema>;
 export type EvidenceImageRow = typeof evidenceImagesTable.$inferSelect;
 export type InvestigationRow = typeof investigationsTable.$inferSelect;
+export type UserRow = typeof usersTable.$inferSelect;

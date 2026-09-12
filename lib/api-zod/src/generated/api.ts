@@ -1802,3 +1802,84 @@ export const GetProjectImageFileParams = zod.object({
 export const GetProjectImageFileResponse = zod.unknown()
 
 
+/**
+ * @summary List every WorkTruth user account. ADMIN role required.
+ */
+export const ListUsersResponseItem = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
+  "createdAt": zod.string()
+}).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
+export const ListUsersResponse = zod.array(ListUsersResponseItem)
+
+
+/**
+ * @summary Create a new officer/verifier/viewer/admin account. ADMIN role required. The new user does not get signed in — they authenticate normally afterward at /auth/login.
+ */
+
+export const createUserBodyPasswordMin = 8;
+
+
+
+export const CreateUserBody = zod.object({
+  "name": zod.string().min(1),
+  "email": zod.string().email(),
+  "password": zod.string().min(createUserBodyPasswordMin).describe('Temporary password for the new account, subject to the same policy as any other WorkTruth password (minimum 8 characters). Hashed with the existing scrypt implementation before storage; never stored or returned as plaintext.'),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.')
+})
+
+export const CreateUserResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
+  "createdAt": zod.string()
+}).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
+
+
+/**
+ * @summary Enable or disable a user account. ADMIN role required. Rejected if this would leave zero active ADMIN accounts.
+ */
+export const UpdateUserStatusParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateUserStatusBody = zod.object({
+  "isActive": zod.boolean()
+})
+
+export const UpdateUserStatusResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
+  "createdAt": zod.string()
+}).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
+
+
+/**
+ * @summary Change a user's role. ADMIN role required. Rejected if this would demote the last active ADMIN.
+ */
+export const UpdateUserRoleParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+export const UpdateUserRoleBody = zod.object({
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.')
+})
+
+export const UpdateUserRoleResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
+  "createdAt": zod.string()
+}).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
+
+

@@ -48,6 +48,52 @@ export interface AuthSession {
 }
 
 /**
+ * ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.
+ */
+export type Role = typeof Role[keyof typeof Role];
+
+
+export const Role = {
+  ADMIN: 'ADMIN',
+  OFFICER: 'OFFICER',
+  VERIFIER: 'VERIFIER',
+  VIEWER: 'VIEWER',
+} as const;
+
+/**
+ * A user account as shown in Admin User Management. Never includes a password or password hash.
+ */
+export interface ManagedUser {
+  id: number;
+  name: string;
+  email: string;
+  role: Role;
+  /** false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately. */
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface CreateUserInput {
+  /** @minLength 1 */
+  name: string;
+  email: string;
+  /**
+     * Temporary password for the new account, subject to the same policy as any other WorkTruth password (minimum 8 characters). Hashed with the existing scrypt implementation before storage; never stored or returned as plaintext.
+     * @minLength 8
+     */
+  password: string;
+  role: Role;
+}
+
+export interface UpdateUserStatusInput {
+  isActive: boolean;
+}
+
+export interface UpdateUserRoleInput {
+  role: Role;
+}
+
+/**
  * The project's current computed Verification Priority (from its persisted analysis), kept in sync with AnalysisBundle.risk.priority — not the raw source/import priority value the project record may have been created with.
  */
 export type ProjectPriority = typeof ProjectPriority[keyof typeof ProjectPriority];
