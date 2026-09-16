@@ -1,4 +1,4 @@
-import { type ComponentType, type ReactNode, useEffect, useState } from 'react';
+import { type ComponentType, type ReactNode, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
 import { getGetDashboardStatsQueryKey, getGetSessionQueryKey, useGetDashboardStats, useGetSession, useLogout } from '@workspace/api-client-react';
@@ -48,6 +48,7 @@ import {
 import type {
   ActivityItem,
   CrossModalAnalysis,
+  CrossProjectVisualMatch,
   DashboardStats,
   EvidenceFusion,
   Project,
@@ -79,27 +80,48 @@ export const priorityTone = (priority?: string) => {
 
 export const firstName = (name?: string) => name?.trim().split(/\s+/)[0];
 
-// Pure so it's trivially testable — based on the browser's local hour, never
-// a server value, per the requirement that the greeting follow the viewer's
-// own timezone with no backend involvement.
-export function getTimeGreeting(date: Date = new Date()): string {
-  const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return 'Good morning';
-  if (hour >= 12 && hour < 17) return 'Good afternoon';
-  if (hour >= 17 && hour < 21) return 'Good evening';
-  return 'Good night';
+// Mirrors the server's own definition (api-server/src/lib/authorization.ts).
+// Used ONLY to hide controls a read-only session cannot use — the actual
+// refusal happens server-side on every mutating route, so a guest who reaches
+// an action some other way still gets a 403 rather than a silent no-op.
+export const isReadOnlyRole = (role?: string) => role === 'VIEWER' || role === 'GUEST';
+export const isGuestRole = (role?: string) => role === 'GUEST';
+
+// One clearly-worded banner, shown on every authenticated page: this data is
+// a demonstration set, not a government record. A guest session additionally
+// says that it cannot change anything.
+export function DemoDataBanner({ role }: { role?: string }) {
+  return (
+    <div className={cn('demo-banner', isGuestRole(role) && 'demo-banner-guest')} data-testid="banner-demo-data">
+      <ShieldCheck size={13} />
+      <span>DEMO DATA · NOT OFFICIAL GOVERNMENT RECORDS</span>
+      {isGuestRole(role) && <span className="demo-banner-tag" data-testid="badge-guest-mode">DEMO MODE · READ ONLY</span>}
+    </div>
+  );
 }
 
-// Re-evaluates once a minute so a page left open across a boundary (e.g.
-// 11:59am -> 12:00pm) updates without requiring a refresh, without the cost
-// of a high-frequency timer.
-export function useTimeGreeting(): string {
-  const [greeting, setGreeting] = useState(() => getTimeGreeting());
-  useEffect(() => {
-    const id = setInterval(() => setGreeting(getTimeGreeting()), 60_000);
-    return () => clearInterval(id);
-  }, []);
-  return greeting;
+// Evidence photographs seeded for the demo hero case are shipped as static
+// frontend assets (public/evidence/) rather than fetched from the API's upload
+// directory — that directory is ephemeral on a free-tier host and its file
+// route sits behind a session cookie, neither of which a demo should depend
+// on. Every other image still comes from the real API file route.
+//
+// The filename is only ever trusted for rows the SEED wrote (marked by this
+// exact source value, never settable by an upload), and is still matched
+// against a strict pattern before being put in a URL.
+const STATIC_EVIDENCE_SOURCE = 'seed_demo_static';
+const STATIC_EVIDENCE_FILENAME = /^[a-z0-9-]+\.(png|jpg|jpeg|webp)$/;
+
+export function evidenceImageSrc(
+  projectId: string,
+  image: { id: number; source?: string; originalFilename?: string | null },
+  apiUrl: (projectId: string, imageId: number) => string,
+): string {
+  if (image.source === STATIC_EVIDENCE_SOURCE && image.originalFilename && STATIC_EVIDENCE_FILENAME.test(image.originalFilename)) {
+    const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : `${import.meta.env.BASE_URL}/`;
+    return `${base}evidence/${image.originalFilename}`;
+  }
+  return apiUrl(projectId, image.id);
 }
 
 export const initials = (name?: string) => {
@@ -237,10 +259,11 @@ export function Shell({ children }: { children: ReactNode }) {
               )}
             </div>
             <div className="topbar-divider" />
+            {isGuestRole(user?.role) && <span className="guest-chip" data-testid="chip-guest-readonly">Guest Demo · Read Only</span>}
             <div className="avatar avatar-navy">{initials(user?.name)}</div><span className="topbar-user">{user?.name ?? ''}</span>
           </div>
         </header>
-        <div className="page-content">{children}</div>
+        <div className="page-content"><DemoDataBanner role={user?.role} />{children}</div>
       </main>
     </div>
   );
@@ -384,7 +407,7 @@ export function ActivityList({ items, compact = false }: { items?: ActivityItem[
 }
 
 export function ProjectRow({ project, onSelect }: { project: Project; onSelect?: () => void }) {
-  return <button className="project-row" onClick={onSelect} data-testid={`row-project-${project.id}`}><div className="project-main"><span className="project-code">{project.id}</span><strong>{project.name}</strong><span className="project-location">{project.district}, {project.state}</span></div><div className="project-category">{project.category}</div><div className="project-evidence"><ScoreBar value={project.evidenceQuality} /><span>{Math.round(project.evidenceQuality)} / 100</span></div><PriorityBadge priority={project.priority} small /><div className="project-flag"><AlertTriangle size={13} /> {project.primaryFinding || 'Review evidence'}</div><ChevronRight className="row-chevron" size={16} /></button>;
+  return <button className="project-row" onClick={onSelect} data-testid={`row-project-${project.id}`}><div className="project-main"><span className="project-code">{project.id}</span><strong>{project.name}</strong><span className="project-location">{project.district}, {project.state}</span></div><div className="project-category">{project.category}</div><div className="project-evidence"><ScoreBar value={project.evidenceQuality} /><span>{Math.round(project.evidenceQuality)} / 100</span></div><PriorityBadge priority={project.priority} small /><div className="project-flag" title={project.primaryFinding || 'Review evidence'}><AlertTriangle size={13} /> <span>{project.primaryFinding || 'Review evidence'}</span></div><ChevronRight className="row-chevron" size={16} /></button>;
 }
 
 export function StatusPill({ status }: { status?: string }) {
@@ -435,4 +458,82 @@ export function WhyTrail({ entries }: { entries?: WhyTrailEntry[] }) {
 
 export function DataStamp({ children }: { children: ReactNode }) {
   return <span className="data-stamp"><span className="stamp-dot" />{children}</span>;
+}
+
+// Side-by-side view of a photograph submitted for this project and the one it
+// matches in another project. Every number shown is measured by the visual
+// engine from the two stored perceptual hashes; the wording deliberately stays
+// within what a perceptual hash can support — that these files are
+// near-identical — and makes no claim about what either photograph shows.
+export function VisualMatchPanel({
+  match,
+  currentSrc,
+  matchedSrc,
+}: {
+  match: CrossProjectVisualMatch;
+  currentSrc: string | null;
+  matchedSrc: string | null;
+}) {
+  return (
+    <Card className="visual-match-card" data-testid="panel-visual-match">
+      <div className="card-overline"><span>EVIDENCE REUSE DETECTED</span><GitCompareArrows size={14} /></div>
+      <div className="visual-match-grid">
+        <figure className="visual-match-figure">
+          <span className="visual-match-caption">CURRENT PHOTOGRAPH</span>
+          {currentSrc ? <img src={currentSrc} alt="Evidence photograph submitted for this project" /> : <div className="visual-match-missing">Image unavailable</div>}
+          <figcaption>Submitted for this project</figcaption>
+        </figure>
+        <div className="visual-match-verdict">
+          <strong data-testid="text-visual-similarity">{match.similarityPercent}%</strong>
+          <span>perceptual-hash similarity</span>
+          <small>{match.hashBits - match.hammingDistance} of {match.hashBits} hash bits match</small>
+        </div>
+        <figure className="visual-match-figure">
+          <span className="visual-match-caption">MATCHED PHOTOGRAPH</span>
+          {matchedSrc ? <img src={matchedSrc} alt={`Evidence photograph submitted for project ${match.matchedProjectId}`} /> : <div className="visual-match-missing">Image unavailable</div>}
+          <figcaption>
+            Submitted for <Link href={`/projects/${match.matchedProjectId}`} className="text-link" data-testid="link-matched-project">{match.matchedProjectId}</Link>
+            {match.matchedProjectName ? ` · ${match.matchedProjectName}` : ''}
+          </figcaption>
+        </figure>
+      </div>
+      <p className="visual-match-note">
+        {match.isExactDuplicate
+          ? `These two files are byte-for-byte identical (same SHA-256). The photograph submitted for this project is the same file already submitted for ${match.matchedProjectId}.`
+          : `Perceptual-hash similarity indicates these photographs are near-duplicates: ${match.similarityPercent}% of the ${match.hashBits}-bit hash matches (Hamming distance ${match.hammingDistance}). The comparison is of image structure only — it does not identify what either photograph depicts, and it is a prompt to verify the source of this evidence, not a finding of fraud.`}
+      </p>
+    </Card>
+  );
+}
+
+// The absolute-cost benchmark behind the financial lens: what this project was
+// sanctioned, what comparable projects were sanctioned, and the multiple
+// between them. The ratio is computed by the financial engine from the peer
+// group's median — this only draws it.
+export function CostBenchmarkBars({ sanction, peerMedianSanction, costRatio, peerCount, dimension }: {
+  sanction: number;
+  peerMedianSanction: number;
+  costRatio: number;
+  peerCount: number;
+  dimension: string;
+}) {
+  const max = Math.max(sanction, peerMedianSanction, 1);
+  return (
+    <div className="cost-benchmark" data-testid="panel-cost-benchmark">
+      <div className="cost-benchmark-row">
+        <span>Project cost (sanctioned)</span>
+        <b>{compactMoney(sanction)}</b>
+        <i className="cost-bar cost-bar-subject" style={{ width: `${(sanction / max) * 100}%` }} />
+      </div>
+      <div className="cost-benchmark-row">
+        <span>Comparable median ({peerCount} projects)</span>
+        <b>{compactMoney(peerMedianSanction)}</b>
+        <i className="cost-bar cost-bar-peer" style={{ width: `${(peerMedianSanction / max) * 100}%` }} />
+      </div>
+      <div className="cost-benchmark-verdict">
+        <strong data-testid="text-cost-ratio">{costRatio.toFixed(1)}×</strong>
+        <span>the median sanction of comparable projects ({dimension})</span>
+      </div>
+    </div>
+  );
 }

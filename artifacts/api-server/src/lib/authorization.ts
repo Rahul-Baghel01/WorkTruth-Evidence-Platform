@@ -10,12 +10,34 @@
 // The closed role set for admin user management. `role` on usersTable stays
 // a plain `text` column (see schema/index.ts's comment on it) — this is the
 // single place that set is enumerated and enforced at the API boundary.
-export const ROLES = ["ADMIN", "OFFICER", "VERIFIER", "VIEWER"] as const;
+export const ROLES = ["ADMIN", "OFFICER", "VERIFIER", "VIEWER", "GUEST"] as const;
 export type Role = (typeof ROLES)[number];
 
 export function isValidRole(value: string): value is Role {
   return (ROLES as readonly string[]).includes(value);
 }
+
+// Roles that may read WorkTruth but never change it. VIEWER is a real
+// read-only staff account; GUEST additionally backs the public "Explore demo"
+// session, which anyone can start without credentials.
+//
+// This is the ONLY definition of read-only, and requireMutationRole
+// (middlewares/auth.ts) is the only place it is enforced — on the server, for
+// every mutating route. The frontend hiding a button is a convenience, never
+// the control: a guest that calls the API directly still gets a 403.
+const READ_ONLY_ROLES: readonly string[] = ["VIEWER", "GUEST"];
+
+export function isReadOnlyRole(role: string): boolean {
+  return READ_ONLY_ROLES.includes(role);
+}
+
+export function isGuest(role: string): boolean {
+  return role === "GUEST";
+}
+
+// GUEST is never an assignable role in admin user management — it exists only
+// for the shared demo account the guest login endpoint issues sessions for.
+export const ASSIGNABLE_ROLES = ROLES.filter((role) => role !== "GUEST");
 
 // ADMIN: manage users (list/create/enable/disable/change role) and every
 // existing WorkTruth function. OFFICER/VERIFIER/VIEWER never reach the user-

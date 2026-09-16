@@ -9,6 +9,7 @@
     "start": "node --env-file-if-exists=../../.env --enable-source-maps ./dist/index.mjs",
     "seed": "tsx --env-file-if-exists=../../.env ./src/seed.ts",
     "reanalyze": "tsx --env-file-if-exists=../../.env ./src/reanalyze.ts",
+    "write-demo-assets": "tsx ./src/write-demo-evidence-assets.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test src/**/*.test.ts"
   },

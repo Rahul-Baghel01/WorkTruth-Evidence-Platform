@@ -26,6 +26,14 @@ export type FinancialPeerGroup = {
   standardDeviation: number | null;
   mad: number | null;
   percentileRank: number | null;
+  // Absolute-cost benchmark, kept deliberately separate from the fields above
+  // (which all describe the expenditure-to-sanction RATIO). Two different
+  // questions: "is this project spending its sanction unusually?" versus
+  // "is this project's sanction unusually large for work of this kind?".
+  /** Median SANCTIONED AMOUNT across the peer group, in rupees. */
+  medianSanction: number | null;
+  /** This project's sanction divided by `medianSanction`. 2.0 = twice the benchmark. */
+  costRatio: number | null;
 };
 
 export type FinancialEvidenceLevel = "NONE" | "BASIC" | "DETAILED";
@@ -71,6 +79,15 @@ const ANOMALY_SCORE_THRESHOLD = 0.35;
 // Rule-based score component: each triggered (non-INFO) check adds its
 // severity weight, capped at 1.
 const SEVERITY_WEIGHT: Record<FinancialCheckSeverity, number> = { INFO: 0, LOW: 0.1, MODERATE: 0.25, HIGH: 0.5 };
+
+// Cost-benchmark thresholds: how many times the peer-group MEDIAN SANCTION a
+// project's own sanction has to reach before the size of the award itself is
+// called out. Deliberately blunt round numbers, and deliberately high — public
+// works legitimately vary in scale, so only a large multiple is worth an
+// officer's time. Like every other threshold here this is a documented
+// heuristic, not a calibrated benchmark.
+const COST_RATIO_HIGH_THRESHOLD = 2;
+const COST_RATIO_MODERATE_THRESHOLD = 1.5;
 
 // Peer-deviation score component: a robust z-score (MAD-based) of 5 or more
 // maps to the maximum component value of 1. 5 MADs is an extreme deviation
@@ -157,7 +174,10 @@ function money(amount: number): string {
 export function evaluateFinancialEvidence(
   project: { sanctionAmount: number; expenditure: number },
   rawRecords: RawFinancialRecord[],
-  peers: { dimension: string; ratios: number[] },
+  // `sanctions` (peer sanctioned amounts, for the absolute-cost benchmark) is
+  // optional: callers that only have ratios keep working unchanged, and the
+  // cost check simply does not run for them.
+  peers: { dimension: string; ratios: number[]; sanctions?: number[] },
 ): FinancialAnalysisResult {
   const { valid: records, invalidCount } = normalizeRecords(rawRecords);
   const checks: FinancialCheck[] = [];
@@ -186,7 +206,7 @@ export function evaluateFinancialEvidence(
       expenditure: expenditureScalarValid ? project.expenditure : null,
       paymentTotal: null,
       expenditureRatio: null,
-      peerGroup: { dimension: peers.dimension, size: 0, median: null, mean: null, standardDeviation: null, mad: null, percentileRank: null },
+      peerGroup: { dimension: peers.dimension, size: 0, median: null, mean: null, standardDeviation: null, mad: null, percentileRank: null, medianSanction: null, costRatio: null },
       checks,
       reasons: ["Financial records are incomplete; anomaly assessment could not be completed."],
       recordCount: records.length,
@@ -343,6 +363,15 @@ export function evaluateFinancialEvidence(
   const peerStdDev = sufficientForStats ? standardDeviation(validRatios) : null;
   const peerMad = sufficientForStats ? mad(validRatios) : null;
   const peerRank = sufficientForStats && expenditureRatio !== null ? percentileRank(validRatios, expenditureRatio) : null;
+
+  // Absolute-cost benchmark: how this project's sanctioned amount compares to
+  // what comparable work was sanctioned for. Only computed when the caller
+  // supplied peer sanction amounts and there are enough of them to take a
+  // meaningful median.
+  const validSanctions = (peers.sanctions ?? []).filter((s) => Number.isFinite(s) && s > 0);
+  const peerMedianSanction = validSanctions.length >= MIN_PEERS_FOR_STATS ? median(validSanctions) : null;
+  const costRatio = peerMedianSanction !== null && peerMedianSanction > 0 && sanction > 0 ? sanction / peerMedianSanction : null;
+
   const peerGroup: FinancialPeerGroup = {
     dimension: peers.dimension,
     size: validRatios.length,
@@ -351,14 +380,26 @@ export function evaluateFinancialEvidence(
     standardDeviation: peerStdDev,
     mad: peerMad,
     percentileRank: peerRank,
+    medianSanction: peerMedianSanction,
+    costRatio,
   };
+
+  if (costRatio !== null && peerMedianSanction !== null && costRatio >= COST_RATIO_MODERATE_THRESHOLD) {
+    checks.push({
+      name: "cost_above_peer_benchmark",
+      severity: costRatio >= COST_RATIO_HIGH_THRESHOLD ? "HIGH" : "MODERATE",
+      message: `Sanctioned amount (${money(sanction)}) is ${costRatio.toFixed(1)}× the median sanction of ${validSanctions.length} comparable projects (${money(peerMedianSanction)}, ${peers.dimension}).`,
+      observed: { sanction, peerMedianSanction, costRatio, peerCount: validSanctions.length },
+      expected: `Comparable to the peer median sanction of ${money(peerMedianSanction)}`,
+    });
+  }
 
   if (peerRank !== null && expenditureRatio !== null && peerMedian !== null) {
     if (peerRank >= 95) {
       checks.push({
         name: "peer_outlier_high",
         severity: "HIGH",
-        message: `Expenditure-to-sanction ratio is among the highest of ${peerGroup.size} comparable projects (${peerGroup.dimension}).`,
+        message: `Expenditure-to-sanction ratio is the highest among ${peerGroup.size} comparable projects (${peerGroup.dimension}).`,
         observed: { expenditureRatio, peerMedian, percentileRank: peerRank },
         expected: `Consistent with the peer median ratio of ${peerMedian.toFixed(2)}`,
       });
@@ -366,7 +407,7 @@ export function evaluateFinancialEvidence(
       checks.push({
         name: "peer_outlier_low",
         severity: "LOW",
-        message: `Expenditure-to-sanction ratio is among the lowest of ${peerGroup.size} comparable projects (${peerGroup.dimension}) — unusually low reported expenditure relative to sanction.`,
+        message: `Expenditure-to-sanction ratio is the lowest among ${peerGroup.size} comparable projects (${peerGroup.dimension}) — unusually low reported expenditure relative to sanction.`,
         observed: { expenditureRatio, peerMedian, percentileRank: peerRank },
       });
     }
@@ -429,7 +470,7 @@ export function evaluateFinancialEvidence(
 // the pure evaluator above.
 // ---------------------------------------------------------------------------
 
-async function fetchPeerRatios(project: ProjectRow): Promise<{ dimension: string; ratios: number[] }> {
+async function fetchPeerRatios(project: ProjectRow): Promise<{ dimension: string; ratios: number[]; sanctions: number[] }> {
   const categoryAndDistrict = await db
     .select({ sanctionAmount: projectsTable.sanctionAmount, expenditure: projectsTable.expenditure })
     .from(projectsTable)
@@ -448,11 +489,11 @@ async function fetchPeerRatios(project: ProjectRow): Promise<{ dimension: string
     }
   }
 
-  const ratios = pool
-    .filter((p) => Number.isFinite(p.sanctionAmount) && p.sanctionAmount > 0 && Number.isFinite(p.expenditure))
-    .map((p) => p.expenditure / p.sanctionAmount);
+  const usable = pool.filter((p) => Number.isFinite(p.sanctionAmount) && p.sanctionAmount > 0 && Number.isFinite(p.expenditure));
+  const ratios = usable.map((p) => p.expenditure / p.sanctionAmount);
+  const sanctions = usable.map((p) => p.sanctionAmount);
 
-  return { dimension, ratios };
+  return { dimension, ratios, sanctions };
 }
 
 export async function computeFinancialAnalysis(project: ProjectRow): Promise<FinancialAnalysisResult> {

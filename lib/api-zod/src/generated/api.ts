@@ -39,6 +39,20 @@ export const LoginResponse = zod.object({
 
 
 /**
+ * Issues a session for the shared GUEST account without credentials. That account holds the read-only GUEST role, so every mutating endpoint rejects it with 403 regardless of what the client sends. Returns 404 when guest access is disabled or the account has been deactivated.
+ * @summary Start a read-only "Explore demo" session. Sets an httpOnly session cookie.
+ */
+export const GuestLoginResponse = zod.object({
+  "user": zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.string()
+})
+})
+
+
+/**
  * @summary End the current session and clear the session cookie
  */
 export const LogoutResponse = zod.void()
@@ -303,7 +317,9 @@ export const GetProjectResponse = zod.object({
   "mean": zod.number().nullish(),
   "standardDeviation": zod.number().nullish(),
   "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
-  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.'),
+  "medianSanction": zod.number().nullish().describe('Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`, which is the median expenditure-to-sanction ratio. Null when the peer group is smaller than the minimum needed for a meaningful median.'),
+  "costRatio": zod.number().nullish().describe('This project\'s sanctioned amount divided by `medianSanction` — e.g. 2.3 means the project was sanctioned 2.3x what comparable work was sanctioned for. Null when `medianSanction` is null.')
 }),
   "checks": zod.array(zod.object({
   "name": zod.string(),
@@ -335,6 +351,16 @@ export const GetProjectResponse = zod.object({
   "supportingImageIds": zod.array(zod.number().int()).optional()
 })),
   "reasons": zod.array(zod.string()),
+  "crossProjectMatch": zod.union([zod.object({
+  "currentImageId": zod.number().int().describe('This project\'s image that matched.'),
+  "matchedProjectId": zod.string(),
+  "matchedProjectName": zod.string().nullable(),
+  "matchedImageId": zod.number().int(),
+  "hammingDistance": zod.number().int().describe('Differing bits between the two perceptual hashes.'),
+  "hashBits": zod.number().int().describe('Total bits compared, so the percentage can be checked.'),
+  "similarityPercent": zod.number().describe('(hashBits - hammingDistance) \/ hashBits, as a percentage. A measured hash agreement, not a model confidence.'),
+  "isExactDuplicate": zod.boolean().describe('True when the two files are also byte-for-byte identical (same SHA-256).')
+}),zod.null()]).optional().describe('Set when an evidence photograph for this project is an exact or perceptual near-duplicate of one submitted for a DIFFERENT project. Null when no such match exists. Detection is perceptual-hash comparison only — it carries no claim about what either photograph depicts.'),
   "engineVersion": zod.string(),
   "updatedAt": zod.string()
 }),
@@ -661,7 +687,9 @@ export const GetProjectAnalysisResponse = zod.object({
   "mean": zod.number().nullish(),
   "standardDeviation": zod.number().nullish(),
   "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
-  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.'),
+  "medianSanction": zod.number().nullish().describe('Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`, which is the median expenditure-to-sanction ratio. Null when the peer group is smaller than the minimum needed for a meaningful median.'),
+  "costRatio": zod.number().nullish().describe('This project\'s sanctioned amount divided by `medianSanction` — e.g. 2.3 means the project was sanctioned 2.3x what comparable work was sanctioned for. Null when `medianSanction` is null.')
 }),
   "checks": zod.array(zod.object({
   "name": zod.string(),
@@ -693,6 +721,16 @@ export const GetProjectAnalysisResponse = zod.object({
   "supportingImageIds": zod.array(zod.number().int()).optional()
 })),
   "reasons": zod.array(zod.string()),
+  "crossProjectMatch": zod.union([zod.object({
+  "currentImageId": zod.number().int().describe('This project\'s image that matched.'),
+  "matchedProjectId": zod.string(),
+  "matchedProjectName": zod.string().nullable(),
+  "matchedImageId": zod.number().int(),
+  "hammingDistance": zod.number().int().describe('Differing bits between the two perceptual hashes.'),
+  "hashBits": zod.number().int().describe('Total bits compared, so the percentage can be checked.'),
+  "similarityPercent": zod.number().describe('(hashBits - hammingDistance) \/ hashBits, as a percentage. A measured hash agreement, not a model confidence.'),
+  "isExactDuplicate": zod.boolean().describe('True when the two files are also byte-for-byte identical (same SHA-256).')
+}),zod.null()]).optional().describe('Set when an evidence photograph for this project is an exact or perceptual near-duplicate of one submitted for a DIFFERENT project. Null when no such match exists. Detection is perceptual-hash comparison only — it carries no claim about what either photograph depicts.'),
   "engineVersion": zod.string(),
   "updatedAt": zod.string()
 }),
@@ -971,7 +1009,9 @@ export const AnalyzeProjectResponse = zod.object({
   "mean": zod.number().nullish(),
   "standardDeviation": zod.number().nullish(),
   "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
-  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.'),
+  "medianSanction": zod.number().nullish().describe('Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`, which is the median expenditure-to-sanction ratio. Null when the peer group is smaller than the minimum needed for a meaningful median.'),
+  "costRatio": zod.number().nullish().describe('This project\'s sanctioned amount divided by `medianSanction` — e.g. 2.3 means the project was sanctioned 2.3x what comparable work was sanctioned for. Null when `medianSanction` is null.')
 }),
   "checks": zod.array(zod.object({
   "name": zod.string(),
@@ -1003,6 +1043,16 @@ export const AnalyzeProjectResponse = zod.object({
   "supportingImageIds": zod.array(zod.number().int()).optional()
 })),
   "reasons": zod.array(zod.string()),
+  "crossProjectMatch": zod.union([zod.object({
+  "currentImageId": zod.number().int().describe('This project\'s image that matched.'),
+  "matchedProjectId": zod.string(),
+  "matchedProjectName": zod.string().nullable(),
+  "matchedImageId": zod.number().int(),
+  "hammingDistance": zod.number().int().describe('Differing bits between the two perceptual hashes.'),
+  "hashBits": zod.number().int().describe('Total bits compared, so the percentage can be checked.'),
+  "similarityPercent": zod.number().describe('(hashBits - hammingDistance) \/ hashBits, as a percentage. A measured hash agreement, not a model confidence.'),
+  "isExactDuplicate": zod.boolean().describe('True when the two files are also byte-for-byte identical (same SHA-256).')
+}),zod.null()]).optional().describe('Set when an evidence photograph for this project is an exact or perceptual near-duplicate of one submitted for a DIFFERENT project. Null when no such match exists. Detection is perceptual-hash comparison only — it carries no claim about what either photograph depicts.'),
   "engineVersion": zod.string(),
   "updatedAt": zod.string()
 }),
@@ -1287,7 +1337,9 @@ export const GetFinancialAnalysisResponse = zod.object({
   "mean": zod.number().nullish(),
   "standardDeviation": zod.number().nullish(),
   "mad": zod.number().nullish().describe('Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation.'),
-  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.')
+  "percentileRank": zod.number().nullish().describe('This project\'s percentile (0-100) among peers, by expenditure-to-sanction ratio.'),
+  "medianSanction": zod.number().nullish().describe('Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`, which is the median expenditure-to-sanction ratio. Null when the peer group is smaller than the minimum needed for a meaningful median.'),
+  "costRatio": zod.number().nullish().describe('This project\'s sanctioned amount divided by `medianSanction` — e.g. 2.3 means the project was sanctioned 2.3x what comparable work was sanctioned for. Null when `medianSanction` is null.')
 }),
   "checks": zod.array(zod.object({
   "name": zod.string(),
@@ -1328,6 +1380,16 @@ export const GetVisualAnalysisResponse = zod.object({
   "supportingImageIds": zod.array(zod.number().int()).optional()
 })),
   "reasons": zod.array(zod.string()),
+  "crossProjectMatch": zod.union([zod.object({
+  "currentImageId": zod.number().int().describe('This project\'s image that matched.'),
+  "matchedProjectId": zod.string(),
+  "matchedProjectName": zod.string().nullable(),
+  "matchedImageId": zod.number().int(),
+  "hammingDistance": zod.number().int().describe('Differing bits between the two perceptual hashes.'),
+  "hashBits": zod.number().int().describe('Total bits compared, so the percentage can be checked.'),
+  "similarityPercent": zod.number().describe('(hashBits - hammingDistance) \/ hashBits, as a percentage. A measured hash agreement, not a model confidence.'),
+  "isExactDuplicate": zod.boolean().describe('True when the two files are also byte-for-byte identical (same SHA-256).')
+}),zod.null()]).optional().describe('Set when an evidence photograph for this project is an exact or perceptual near-duplicate of one submitted for a DIFFERENT project. Null when no such match exists. Detection is perceptual-hash comparison only — it carries no claim about what either photograph depicts.'),
   "engineVersion": zod.string(),
   "updatedAt": zod.string()
 })
@@ -1809,7 +1871,7 @@ export const ListUsersResponseItem = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "email": zod.string(),
-  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.'),
   "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
   "createdAt": zod.string()
 }).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
@@ -1828,14 +1890,14 @@ export const CreateUserBody = zod.object({
   "name": zod.string().min(1),
   "email": zod.string().email(),
   "password": zod.string().min(createUserBodyPasswordMin).describe('Temporary password for the new account, subject to the same policy as any other WorkTruth password (minimum 8 characters). Hashed with the existing scrypt implementation before storage; never stored or returned as plaintext.'),
-  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.')
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.')
 })
 
 export const CreateUserResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "email": zod.string(),
-  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.'),
   "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
   "createdAt": zod.string()
 }).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
@@ -1856,7 +1918,7 @@ export const UpdateUserStatusResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "email": zod.string(),
-  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.'),
   "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
   "createdAt": zod.string()
 }).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
@@ -1870,14 +1932,14 @@ export const UpdateUserRoleParams = zod.object({
 })
 
 export const UpdateUserRoleBody = zod.object({
-  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.')
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.')
 })
 
 export const UpdateUserRoleResponse = zod.object({
   "id": zod.number().int(),
   "name": zod.string(),
   "email": zod.string(),
-  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.'),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.'),
   "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
   "createdAt": zod.string()
 }).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')

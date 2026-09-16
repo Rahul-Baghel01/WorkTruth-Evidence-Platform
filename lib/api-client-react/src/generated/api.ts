@@ -228,6 +228,78 @@ export const useLogin = <TError = ErrorType<void>,
       return useMutation(getLoginMutationOptions(options));
     }
 
+export const getGuestLoginUrl = () => {
+
+
+
+
+  return `/api/auth/guest`
+}
+
+/**
+ * Issues a session for the shared GUEST account without credentials. That account holds the read-only GUEST role, so every mutating endpoint rejects it with 403 regardless of what the client sends. Returns 404 when guest access is disabled or the account has been deactivated.
+ * @summary Start a read-only "Explore demo" session. Sets an httpOnly session cookie.
+ */
+export const guestLogin = async ( options?: Parameters<typeof customFetch>[1]): Promise<AuthSession> => {
+
+  return customFetch<AuthSession>(getGuestLoginUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getGuestLoginMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof guestLogin>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof guestLogin>>, TError,void, TContext> => {
+
+const mutationKey = ['guestLogin'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof guestLogin>>, void> = () => {
+
+
+          return  guestLogin(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GuestLoginMutationResult = NonNullable<Awaited<ReturnType<typeof guestLogin>>>
+
+    export type GuestLoginMutationError = ErrorType<void>
+
+    /**
+ * @summary Start a read-only "Explore demo" session. Sets an httpOnly session cookie.
+ */
+export const useGuestLogin = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof guestLogin>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof guestLogin>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getGuestLoginMutationOptions(options));
+    }
+
 export const getLogoutUrl = () => {
 
 

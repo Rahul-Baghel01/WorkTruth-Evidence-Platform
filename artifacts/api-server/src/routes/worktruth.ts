@@ -54,15 +54,20 @@ import {
 import {
   buildAnalysis,
   buildSeedEvidenceImageBuffer,
+  compareByVerificationPriority,
   ensureSeeded,
   getProject,
+  guestAccountEmail,
   listProjectRows,
   seedFinancialRecordsFromScalars,
+  seedVariantFromFilename,
   toProject,
   updateInvestigationRecord,
 } from "../lib/worktruth";
+import { buildHeroSceneImage } from "../lib/demo-evidence-images";
+import { HERO_EVIDENCE_ASSETS, HERO_STATIC_EVIDENCE_SOURCE } from "../lib/hero-case";
 import { createSession, deleteSession, DUMMY_PASSWORD_HASH, normalizeEmail, SESSION_COOKIE_NAME, sessionCookieOptions, verifyPassword } from "../lib/auth";
-import { requireAuth } from "../middlewares/auth";
+import { requireAuth, requireMutationRole } from "../middlewares/auth";
 import { extractImageMetadata, sha256Hex } from "../lib/image-processing";
 import { evidenceStorage } from "../lib/storage";
 
@@ -131,6 +136,27 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   res.cookie(SESSION_COOKIE_NAME, token, { ...sessionCookieOptions(), expires: expiresAt });
   res.json(LoginResponse.parse({
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
+  }));
+});
+
+// "Explore demo" — issues a session for the shared, read-only GUEST account
+// without asking for credentials. Deliberately not a password bypass: it can
+// only ever produce a session for that one account, which holds the GUEST
+// role, and every mutating route rejects that role server-side
+// (requireMutationRole). An administrator can switch the demo off by
+// disabling the account, and the endpoint then refuses like any other
+// disabled login.
+router.post("/auth/guest", async (_req, res): Promise<void> => {
+  await ensureSeeded();
+  const [guest] = await db.select().from(usersTable).where(eq(usersTable.email, guestAccountEmail()));
+  if (!guest || !guest.isActive || guest.role !== "GUEST") {
+    res.status(404).json({ error: "Guest access is not available." });
+    return;
+  }
+  const { token, expiresAt } = await createSession(guest.id);
+  res.cookie(SESSION_COOKIE_NAME, token, { ...sessionCookieOptions(), expires: expiresAt });
+  res.json(LoginResponse.parse({
+    user: { id: guest.id, name: guest.name, email: guest.email, role: guest.role },
   }));
 });
 
@@ -248,6 +274,12 @@ router.get("/projects", async (req, res): Promise<void> => {
   if (query.priority) rows = rows.filter((row) => row.computedPriority === query.priority);
   if (query.district) rows = rows.filter((row) => row.district === query.district);
   if (query.category) rows = rows.filter((row) => row.category === query.category);
+  // "priority" is the queue's default and its whole purpose: the most urgent
+  // verification first. It previously had no sort at all, so the list silently
+  // kept the incoming evidence-quality ordering and a CRITICAL project could
+  // sit below a clean one. Ranked by priority band, then by the routing score
+  // within a band.
+  if (!query.sort || query.sort === "priority") rows.sort(compareByVerificationPriority);
   if (query.sort === "evidence") rows.sort((a, b) => a.evidenceQuality - b.evidenceQuality);
   if (query.sort === "financial") rows.sort((a, b) => b.expenditure / b.sanctionAmount - a.expenditure / a.sanctionAmount);
   if (query.sort === "visual") rows.sort((a, b) => (b.computedPriority === "HIGH" ? 1 : 0) - (a.computedPriority === "HIGH" ? 1 : 0));
@@ -265,7 +297,7 @@ router.get("/projects", async (req, res): Promise<void> => {
   }));
 });
 
-router.post("/projects", async (req, res): Promise<void> => {
+router.post("/projects", requireMutationRole, async (req, res): Promise<void> => {
   const parsed = CreateProjectBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -306,7 +338,7 @@ router.get("/projects/:id", async (req, res): Promise<void> => {
   res.json(GetProjectResponse.parse({ ...toProject(detail.project, detail.analysis.risk.priority, detail.analysis.risk.primaryFinding), description: detail.project.description, contractor: detail.project.contractor, analysis: detail.analysis, investigation: detail.investigation }));
 });
 
-router.put("/projects/:id", async (req, res): Promise<void> => {
+router.put("/projects/:id", requireMutationRole, async (req, res): Promise<void> => {
   const params = UpdateProjectParams.safeParse(req.params);
   const body = UpdateProjectBody.safeParse(req.body);
   if (!params.success) {
@@ -340,7 +372,7 @@ router.get("/projects/:id/analysis", async (req, res): Promise<void> => {
   res.json(GetProjectAnalysisResponse.parse(detail.analysis));
 });
 
-router.post("/projects/:id/analysis", async (req, res): Promise<void> => {
+router.post("/projects/:id/analysis", requireMutationRole, async (req, res): Promise<void> => {
   const params = AnalyzeProjectParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
@@ -384,7 +416,7 @@ router.get("/projects/:id/investigation", async (req, res): Promise<void> => {
   res.json(GetInvestigationResponse.parse(detail.investigation));
 });
 
-router.post("/projects/:id/investigation", async (req, res): Promise<void> => {
+router.post("/projects/:id/investigation", requireMutationRole, async (req, res): Promise<void> => {
   const params = UpdateInvestigationParams.safeParse(req.params);
   const body = UpdateInvestigationBody.safeParse(req.body);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
@@ -409,7 +441,7 @@ router.get("/projects/:id/progress", async (req, res): Promise<void> => {
   res.json(ListProgressRecordsResponse.parse(rows.map((row) => ({ id: row.id, projectId: row.projectId, reportDate: row.reportDate, progressPercent: row.progressPercent, note: row.note, source: row.source, createdAt: row.createdAt.toISOString() }))));
 });
 
-router.post("/projects/:id/progress", async (req, res): Promise<void> => {
+router.post("/projects/:id/progress", requireMutationRole, async (req, res): Promise<void> => {
   const params = CreateProgressRecordParams.safeParse(req.params);
   const body = CreateProgressRecordBody.safeParse(req.body);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
@@ -423,7 +455,7 @@ router.post("/projects/:id/progress", async (req, res): Promise<void> => {
   res.status(201).json(CreateProgressRecordResponse.parse({ id: created.id, projectId: created.projectId, reportDate: created.reportDate, progressPercent: created.progressPercent, note: created.note, source: created.source, createdAt: created.createdAt.toISOString() }));
 });
 
-router.post("/upload/projects", async (req, res): Promise<void> => {
+router.post("/upload/projects", requireMutationRole, async (req, res): Promise<void> => {
   const parsed = UploadProjectsBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
   await ensureSeeded();
@@ -503,7 +535,7 @@ router.get("/projects/:id/images", async (req, res): Promise<void> => {
   res.json(ListProjectImagesResponse.parse(rows.map(toEvidenceImage)));
 });
 
-router.post("/projects/:id/images", imageUpload.single("image"), async (req, res): Promise<void> => {
+router.post("/projects/:id/images", requireMutationRole, imageUpload.single("image"), async (req, res): Promise<void> => {
   const params = UploadProjectImageParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   if (!req.user) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -559,7 +591,7 @@ router.get("/projects/:id/images/:imageId", async (req, res): Promise<void> => {
   res.json(GetProjectImageResponse.parse(toEvidenceImage(row)));
 });
 
-router.delete("/projects/:id/images/:imageId", async (req, res): Promise<void> => {
+router.delete("/projects/:id/images/:imageId", requireMutationRole, async (req, res): Promise<void> => {
   const params = DeleteProjectImageParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const [row] = await db.select().from(evidenceImagesTable).where(and(eq(evidenceImagesTable.projectId, params.data.id), eq(evidenceImagesTable.id, params.data.imageId)));
@@ -591,11 +623,24 @@ router.get("/projects/:id/images/:imageId/file", async (req, res): Promise<void>
     // upload (source is "officer_upload" there): a genuinely lost real
     // upload still 404s, exactly as before.
     if (row.source === "seed_demo") {
-      const buffer = await buildSeedEvidenceImageBuffer();
+      const buffer = await buildSeedEvidenceImageBuffer(seedVariantFromFilename(row.originalFilename));
       res.setHeader("Content-Type", row.mimeType ?? "image/png");
       res.setHeader("Cache-Control", "private, max-age=86400");
       res.send(buffer);
       return;
+    }
+    // Hero-case photographs regenerate from the same deterministic source the
+    // committed static copies were written from, so this reproduces the exact
+    // bytes this row's hashes were computed over.
+    if (row.source === HERO_STATIC_EVIDENCE_SOURCE) {
+      const asset = HERO_EVIDENCE_ASSETS.find((item) => item.filename === row.originalFilename);
+      if (asset) {
+        const buffer = await buildHeroSceneImage(asset.variant);
+        res.setHeader("Content-Type", row.mimeType ?? "image/png");
+        res.setHeader("Cache-Control", "private, max-age=86400");
+        res.send(buffer);
+        return;
+      }
     }
     res.status(404).json({ error: "Stored file not found" });
   }

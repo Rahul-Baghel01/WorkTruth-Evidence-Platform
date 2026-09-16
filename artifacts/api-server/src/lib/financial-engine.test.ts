@@ -138,3 +138,61 @@ describe("evaluateFinancialEvidence", () => {
     assert.notEqual(resultA.score, 0.43);
   });
 });
+
+describe("peer cost benchmark (sanctioned amount vs comparable projects)", () => {
+  const ratios = [0.95, 0.96, 0.94, 0.93];
+  const project = { sanctionAmount: 2_700_000, expenditure: 2_680_000 };
+
+  test("the cost ratio is the project's sanction over the peer MEDIAN sanction", () => {
+    const sanctions = [1_120_000, 1_150_000, 1_200_000, 2_250_000]; // median 1,175,000
+    const result = evaluateFinancialEvidence(project, [], { dimension: "category + district", ratios, sanctions });
+    assert.equal(result.peerGroup.medianSanction, 1_175_000);
+    assert.ok(result.peerGroup.costRatio !== null);
+    // 2,700,000 / 1,175,000 = 2.298..., i.e. the "2.3x benchmark" figure.
+    assert.equal(Number(result.peerGroup.costRatio?.toFixed(1)), 2.3);
+  });
+
+  test("a sanction at or above 2x the peer median raises a HIGH cost check", () => {
+    const sanctions = [1_120_000, 1_150_000, 1_200_000, 2_250_000];
+    const result = evaluateFinancialEvidence(project, [], { dimension: "category + district", ratios, sanctions });
+    const check = result.checks.find((c) => c.name === "cost_above_peer_benchmark");
+    assert.ok(check);
+    assert.equal(check?.severity, "HIGH");
+    assert.equal(check?.observed?.peerMedianSanction, 1_175_000);
+    assert.ok(check?.message.includes("2.3×"));
+  });
+
+  test("a moderately elevated sanction is MODERATE, not HIGH", () => {
+    // 1,900,000 / 1,175,000 = 1.62x -> above the 1.5x bar, below the 2x bar.
+    const result = evaluateFinancialEvidence({ sanctionAmount: 1_900_000, expenditure: 1_800_000 }, [], {
+      dimension: "category",
+      ratios,
+      sanctions: [1_120_000, 1_150_000, 1_200_000, 2_250_000],
+    });
+    assert.equal(result.checks.find((c) => c.name === "cost_above_peer_benchmark")?.severity, "MODERATE");
+  });
+
+  test("a sanction in line with its peers raises no cost check", () => {
+    const result = evaluateFinancialEvidence({ sanctionAmount: 1_180_000, expenditure: 1_100_000 }, [], {
+      dimension: "category",
+      ratios,
+      sanctions: [1_120_000, 1_150_000, 1_200_000, 2_250_000],
+    });
+    assert.ok(!result.checks.some((c) => c.name === "cost_above_peer_benchmark"));
+    assert.equal(result.peerGroup.costRatio !== null, true);
+  });
+
+  test("no benchmark is computed below the minimum peer count, and none is invented", () => {
+    const result = evaluateFinancialEvidence(project, [], { dimension: "category", ratios: [0.95, 0.96], sanctions: [1_120_000, 1_150_000] });
+    assert.equal(result.peerGroup.medianSanction, null);
+    assert.equal(result.peerGroup.costRatio, null);
+    assert.ok(!result.checks.some((c) => c.name === "cost_above_peer_benchmark"));
+  });
+
+  test("callers that supply no peer sanctions are unaffected", () => {
+    const result = evaluateFinancialEvidence(project, [], { dimension: "category", ratios });
+    assert.equal(result.peerGroup.medianSanction, null);
+    assert.equal(result.peerGroup.costRatio, null);
+    assert.ok(!result.checks.some((c) => c.name === "cost_above_peer_benchmark"));
+  });
+});

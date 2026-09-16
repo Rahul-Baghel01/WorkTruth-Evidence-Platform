@@ -48,7 +48,7 @@ export interface AuthSession {
 }
 
 /**
- * ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.
+ * ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind "Explore demo"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.
  */
 export type Role = typeof Role[keyof typeof Role];
 
@@ -58,6 +58,7 @@ export const Role = {
   OFFICER: 'OFFICER',
   VERIFIER: 'VERIFIER',
   VIEWER: 'VIEWER',
+  GUEST: 'GUEST',
 } as const;
 
 /**
@@ -319,6 +320,16 @@ export interface FinancialPeerGroup {
      * @nullable
      */
   percentileRank?: number | null;
+  /**
+     * Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`, which is the median expenditure-to-sanction ratio. Null when the peer group is smaller than the minimum needed for a meaningful median.
+     * @nullable
+     */
+  medianSanction?: number | null;
+  /**
+     * This project's sanctioned amount divided by `medianSanction` — e.g. 2.3 means the project was sanctioned 2.3x what comparable work was sanctioned for. Null when `medianSanction` is null.
+     * @nullable
+     */
+  costRatio?: number | null;
 }
 
 export type FinancialCheckSeverity = typeof FinancialCheckSeverity[keyof typeof FinancialCheckSeverity];
@@ -398,6 +409,23 @@ export interface VisualCheck {
   supportingImageIds?: number[];
 }
 
+export interface CrossProjectVisualMatch {
+  /** This project's image that matched. */
+  currentImageId: number;
+  matchedProjectId: string;
+  /** @nullable */
+  matchedProjectName: string | null;
+  matchedImageId: number;
+  /** Differing bits between the two perceptual hashes. */
+  hammingDistance: number;
+  /** Total bits compared, so the percentage can be checked. */
+  hashBits: number;
+  /** (hashBits - hammingDistance) / hashBits, as a percentage. A measured hash agreement, not a model confidence. */
+  similarityPercent: number;
+  /** True when the two files are also byte-for-byte identical (same SHA-256). */
+  isExactDuplicate: boolean;
+}
+
 export interface VisualAnalysis {
   status: VisualAnalysisStatus;
   /**
@@ -416,6 +444,8 @@ export interface VisualAnalysis {
   latestCapturedAt: string | null;
   checks: VisualCheck[];
   reasons: string[];
+  /** Set when an evidence photograph for this project is an exact or perceptual near-duplicate of one submitted for a DIFFERENT project. Null when no such match exists. Detection is perceptual-hash comparison only — it carries no claim about what either photograph depicts. */
+  crossProjectMatch?: CrossProjectVisualMatch | null;
   engineVersion: string;
   updatedAt: string;
 }

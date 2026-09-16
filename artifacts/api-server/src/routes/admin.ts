@@ -18,7 +18,7 @@ import {
   UpdateUserStatusResponse,
 } from "@workspace/api-zod";
 import { hashPassword, normalizeEmail } from "../lib/auth";
-import { isLastActiveAdmin } from "../lib/authorization";
+import { isGuest, isLastActiveAdmin } from "../lib/authorization";
 import { requireAdmin, requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -52,6 +52,13 @@ router.post("/admin/users", async (req, res): Promise<void> => {
   const parsed = CreateUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  // GUEST is not an assignable role — it exists only for the shared demo
+  // account the guest-login endpoint issues sessions for, and handing it to a
+  // real user would silently make that account read-only.
+  if (isGuest(parsed.data.role)) {
+    res.status(400).json({ error: "GUEST is not an assignable role." });
     return;
   }
   const email = normalizeEmail(parsed.data.email);
@@ -124,6 +131,13 @@ router.patch("/admin/users/:id/role", async (req, res): Promise<void> => {
   const [target] = allUsers.filter((row) => row.id === params.data.id);
   if (!target) {
     res.status(404).json({ error: "User not found" });
+    return;
+  }
+  // GUEST is not an assignable role — it exists only for the shared demo
+  // account, and handing it to a real user would silently make that account
+  // read-only.
+  if (isGuest(body.data.role)) {
+    res.status(400).json({ error: "GUEST is not an assignable role." });
     return;
   }
   // Demoting the last active admin away from ADMIN carries the exact same

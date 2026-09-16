@@ -58,6 +58,24 @@ paths:
           description: Invalid input
         "401":
           description: Invalid credentials
+  /auth/guest:
+    post:
+      operationId: guestLogin
+      tags: [auth]
+      summary: Start a read-only "Explore demo" session. Sets an httpOnly session cookie.
+      description: >-
+        Issues a session for the shared GUEST account without credentials. That account holds the
+        read-only GUEST role, so every mutating endpoint rejects it with 403 regardless of what the
+        client sends. Returns 404 when guest access is disabled or the account has been deactivated.
+      responses:
+        "200":
+          description: Read-only guest session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "404":
+          description: Guest access is not available
   /auth/logout:
     post:
       operationId: logout
@@ -625,8 +643,13 @@ components:
         role: { type: string }
     Role:
       type: string
-      description: "ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users."
-      enum: [ADMIN, OFFICER, VERIFIER, VIEWER]
+      description: >-
+        ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification
+        decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise
+        the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the
+        shared read-only account behind "Explore demo"; it is reported here so an administrator can
+        see and disable it, but it can never be ASSIGNED to a user account.
+      enum: [ADMIN, OFFICER, VERIFIER, VIEWER, GUEST]
     ManagedUser:
       type: object
       description: A user account as shown in Admin User Management. Never includes a password or password hash.
@@ -1080,6 +1103,18 @@ components:
         standardDeviation: { type: ["number", "null"] }
         mad: { type: ["number", "null"], description: "Median Absolute Deviation, scaled to estimate a normal-distribution standard deviation." }
         percentileRank: { type: ["number", "null"], description: "This project's percentile (0-100) among peers, by expenditure-to-sanction ratio." }
+        medianSanction:
+          type: ["number", "null"]
+          description: >-
+            Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`,
+            which is the median expenditure-to-sanction ratio. Null when the peer group is
+            smaller than the minimum needed for a meaningful median.
+        costRatio:
+          type: ["number", "null"]
+          description: >-
+            This project's sanctioned amount divided by `medianSanction` — e.g. 2.3 means the
+            project was sanctioned 2.3x what comparable work was sanctioned for. Null when
+            `medianSanction` is null.
     FinancialAnalysis:
       type: object
       required: [evidenceLevel, status, score, confidence, sanction, expenditure, paymentTotal, expenditureRatio, peerGroup, checks, reasons, recordCount, engineVersion, updatedAt]
@@ -1145,8 +1180,31 @@ components:
         reasons:
           type: array
           items: { type: string }
+        crossProjectMatch:
+          oneOf:
+            - $ref: "#/components/schemas/CrossProjectVisualMatch"
+            - type: "null"
+          description: >-
+            Set when an evidence photograph for this project is an exact or perceptual
+            near-duplicate of one submitted for a DIFFERENT project. Null when no such
+            match exists. Detection is perceptual-hash comparison only — it carries no
+            claim about what either photograph depicts.
         engineVersion: { type: string }
         updatedAt: { type: string }
+    CrossProjectVisualMatch:
+      type: object
+      required: [currentImageId, matchedProjectId, matchedProjectName, matchedImageId, hammingDistance, hashBits, similarityPercent, isExactDuplicate]
+      properties:
+        currentImageId: { type: integer, description: "This project's image that matched." }
+        matchedProjectId: { type: string }
+        matchedProjectName: { type: ["string", "null"] }
+        matchedImageId: { type: integer }
+        hammingDistance: { type: integer, description: "Differing bits between the two perceptual hashes." }
+        hashBits: { type: integer, description: "Total bits compared, so the percentage can be checked." }
+        similarityPercent:
+          type: number
+          description: "(hashBits - hammingDistance) / hashBits, as a percentage. A measured hash agreement, not a model confidence."
+        isExactDuplicate: { type: boolean, description: "True when the two files are also byte-for-byte identical (same SHA-256)." }
     EvidenceImage:
       type: object
       required: [id, projectId, originalFilename, mimeType, fileSizeBytes, width, height, capturedAt, gpsLatitude, gpsLongitude, gpsAccuracyMeters, sha256, perceptualHash, label, source, uploadedAt]

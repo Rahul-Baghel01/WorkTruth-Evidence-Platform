@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db, evidenceImagesTable, type ProjectRow } from "@workspace/db";
+import { eq, ne } from "drizzle-orm";
+import { db, evidenceImagesTable, projectsTable, type ProjectRow } from "@workspace/db";
 import { hammingDistance } from "./image-processing";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,27 @@ export type VisualCheck = {
 
 export type VisualStatus = "INSUFFICIENT_EVIDENCE" | "CONSISTENT" | "REQUIRES_VERIFICATION";
 
+// The strongest visual finding this engine can make: a photograph submitted
+// for THIS project is the same photograph (or a perceptual near-duplicate of
+// one) already submitted for a DIFFERENT project. Every number here is
+// measured from the two stored hashes — `similarityPercent` is simply the
+// share of perceptual-hash bits that agree, not a model's confidence and not
+// a claim about what either photograph depicts.
+export type CrossProjectVisualMatch = {
+  currentImageId: number;
+  matchedProjectId: string;
+  matchedProjectName: string | null;
+  matchedImageId: number;
+  /** Differing bits between the two perceptual hashes. */
+  hammingDistance: number;
+  /** Total bits compared — the hash length, so the percentage is checkable. */
+  hashBits: number;
+  /** (hashBits - hammingDistance) / hashBits, as a percentage. */
+  similarityPercent: number;
+  /** True when the two files are also byte-for-byte identical (same SHA-256). */
+  isExactDuplicate: boolean;
+};
+
 export type VisualAnalysisResult = {
   status: VisualStatus;
   score: number | null;
@@ -37,6 +58,8 @@ export type VisualAnalysisResult = {
   latestCapturedAt: string | null;
   checks: VisualCheck[];
   reasons: string[];
+  /** Best cross-project match found, or null when none is within threshold. */
+  crossProjectMatch: CrossProjectVisualMatch | null;
   engineVersion: string;
   updatedAt: string;
 };
@@ -46,6 +69,12 @@ export type RawVisualImage = {
   sha256: string | null;
   perceptualHash: string | null;
   capturedAt: Date | string | null;
+};
+
+/** An evidence image belonging to some OTHER project, for reuse detection. */
+export type PeerVisualImage = RawVisualImage & {
+  projectId: string;
+  projectName: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -88,7 +117,7 @@ function toDate(value: Date | string | null): Date | null {
 // Pure evaluation — no I/O, fully unit-testable with synthetic fixtures
 // ---------------------------------------------------------------------------
 
-export function evaluateVisualEvidence(images: RawVisualImage[]): VisualAnalysisResult {
+export function evaluateVisualEvidence(images: RawVisualImage[], peerImages: PeerVisualImage[] = []): VisualAnalysisResult {
   const now = new Date().toISOString();
   const checks: VisualCheck[] = [];
   const reasons: string[] = [];
@@ -105,6 +134,7 @@ export function evaluateVisualEvidence(images: RawVisualImage[]): VisualAnalysis
       latestCapturedAt: null,
       checks: [],
       reasons: ["No evidence images are available for this project."],
+      crossProjectMatch: null,
       engineVersion: VISUAL_ENGINE_VERSION,
       updatedAt: now,
     };
@@ -202,6 +232,58 @@ export function evaluateVisualEvidence(images: RawVisualImage[]): VisualAnalysis
     reasons.push("Evidence images captured on different dates show no visible change between them.");
   }
 
+  // --- evidence reused from another project (perceptual hash, cross-project) ---
+  // Same primitives as the within-project check above, but compared against
+  // OTHER projects' images. Rated HIGH rather than MODERATE: two similar
+  // photographs inside one project are expected (one site, photographed
+  // twice), whereas the same photograph appearing under two different
+  // projects means one of those claims is not evidenced by its own record.
+  let crossProjectMatch: CrossProjectVisualMatch | null = null;
+  for (const image of images) {
+    if (!image.perceptualHash) continue;
+    for (const peer of peerImages) {
+      if (!peer.perceptualHash) continue;
+      const distance = hammingDistance(image.perceptualHash, peer.perceptualHash);
+      if (distance > NEAR_DUPLICATE_HAMMING_THRESHOLD) continue;
+      const hashBits = image.perceptualHash.length;
+      const candidate: CrossProjectVisualMatch = {
+        currentImageId: image.id,
+        matchedProjectId: peer.projectId,
+        matchedProjectName: peer.projectName,
+        matchedImageId: peer.id,
+        hammingDistance: distance,
+        hashBits,
+        similarityPercent: Math.round(((hashBits - distance) / hashBits) * 1000) / 10,
+        isExactDuplicate: Boolean(image.sha256 && peer.sha256 && image.sha256 === peer.sha256),
+      };
+      // Keep the closest match; prefer an exact duplicate at equal distance.
+      if (
+        !crossProjectMatch ||
+        distance < crossProjectMatch.hammingDistance ||
+        (distance === crossProjectMatch.hammingDistance && candidate.isExactDuplicate && !crossProjectMatch.isExactDuplicate)
+      ) {
+        crossProjectMatch = candidate;
+      }
+    }
+  }
+  if (crossProjectMatch) {
+    const { matchedProjectId, similarityPercent, hammingDistance: distance, hashBits, isExactDuplicate } = crossProjectMatch;
+    checks.push({
+      name: "cross_project_duplicate_evidence",
+      severity: "HIGH",
+      message: isExactDuplicate
+        ? `An evidence photograph is byte-for-byte identical (same SHA-256) to one submitted for project ${matchedProjectId}.`
+        : `Perceptual-hash similarity indicates an evidence photograph is a near-duplicate of one submitted for project ${matchedProjectId} (${similarityPercent}% of ${hashBits} hash bits match; Hamming distance ${distance}).`,
+      observed: { similarityPercent, hammingDistance: distance, hashBits },
+      supportingImageIds: [crossProjectMatch.currentImageId],
+    });
+    reasons.push(
+      isExactDuplicate
+        ? `An evidence photograph is identical to one already submitted for project ${matchedProjectId}.`
+        : `An evidence photograph is a perceptual near-duplicate of one submitted for project ${matchedProjectId} (${similarityPercent}% hash similarity).`,
+    );
+  }
+
   // --- score, status, confidence ---
   const triggered = checks.filter((c) => c.severity !== "INFO");
   const score = clamp(triggered.reduce((sum, c) => sum + SEVERITY_WEIGHT[c.severity], 0), 0, 1);
@@ -230,6 +312,7 @@ export function evaluateVisualEvidence(images: RawVisualImage[]): VisualAnalysis
     latestCapturedAt,
     checks,
     reasons,
+    crossProjectMatch,
     engineVersion: VISUAL_ENGINE_VERSION,
     updatedAt: now,
   };
@@ -242,5 +325,24 @@ export function evaluateVisualEvidence(images: RawVisualImage[]): VisualAnalysis
 export async function computeVisualAnalysis(project: ProjectRow): Promise<VisualAnalysisResult> {
   const rows = await db.select().from(evidenceImagesTable).where(eq(evidenceImagesTable.projectId, project.id));
   const images: RawVisualImage[] = rows.map((r) => ({ id: r.id, sha256: r.sha256, perceptualHash: r.perceptualHash, capturedAt: r.capturedAt }));
-  return evaluateVisualEvidence(images);
+
+  // Every other project's hashed evidence, for reuse detection. Only the hash
+  // columns are read — never the image bytes — so this stays a cheap index
+  // scan. It is a full pairwise comparison against the portfolio, which is
+  // fine at this scale; a much larger corpus would want a hash index (e.g.
+  // BK-tree) rather than this linear scan.
+  const peerRows = await db
+    .select({
+      id: evidenceImagesTable.id,
+      projectId: evidenceImagesTable.projectId,
+      projectName: projectsTable.name,
+      sha256: evidenceImagesTable.sha256,
+      perceptualHash: evidenceImagesTable.perceptualHash,
+      capturedAt: evidenceImagesTable.capturedAt,
+    })
+    .from(evidenceImagesTable)
+    .innerJoin(projectsTable, eq(projectsTable.id, evidenceImagesTable.projectId))
+    .where(ne(evidenceImagesTable.projectId, project.id));
+
+  return evaluateVisualEvidence(images, peerRows);
 }

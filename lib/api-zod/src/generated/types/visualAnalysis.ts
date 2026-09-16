@@ -5,6 +5,7 @@
  * WorkTruth evidence-integrity and verification-prioritization API
  * OpenAPI spec version: 0.1.0
  */
+import type { CrossProjectVisualMatch } from './crossProjectVisualMatch';
 import type { VisualAnalysisStatus } from './visualAnalysisStatus';
 import type { VisualCheck } from './visualCheck';
 
@@ -26,6 +27,8 @@ export interface VisualAnalysis {
   latestCapturedAt: string | null;
   checks: VisualCheck[];
   reasons: string[];
+  /** Set when an evidence photograph for this project is an exact or perceptual near-duplicate of one submitted for a DIFFERENT project. Null when no such match exists. Detection is perceptual-hash comparison only — it carries no claim about what either photograph depicts. */
+  crossProjectMatch?: CrossProjectVisualMatch | null;
   engineVersion: string;
   updatedAt: string;
 }

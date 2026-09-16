@@ -1,11 +1,27 @@
 import "./test-env";
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { countActiveAdmins, isAdmin, isLastActiveAdmin, isValidRole, ROLES, type AdminGuardUser } from "./authorization";
+import {
+  ASSIGNABLE_ROLES,
+  countActiveAdmins,
+  isAdmin,
+  isGuest,
+  isLastActiveAdmin,
+  isReadOnlyRole,
+  isValidRole,
+  ROLES,
+  type AdminGuardUser,
+} from "./authorization";
 
 describe("ROLES / isValidRole", () => {
-  test("the closed role set is exactly ADMIN/OFFICER/VERIFIER/VIEWER", () => {
-    assert.deepEqual([...ROLES], ["ADMIN", "OFFICER", "VERIFIER", "VIEWER"]);
+  test("the closed role set is exactly ADMIN/OFFICER/VERIFIER/VIEWER/GUEST", () => {
+    assert.deepEqual([...ROLES], ["ADMIN", "OFFICER", "VERIFIER", "VIEWER", "GUEST"]);
+  });
+
+  test("GUEST is a real role but is never offered as an assignable one", () => {
+    assert.equal(isValidRole("GUEST"), true);
+    assert.deepEqual([...ASSIGNABLE_ROLES], ["ADMIN", "OFFICER", "VERIFIER", "VIEWER"]);
+    assert.equal(ASSIGNABLE_ROLES.includes("GUEST" as never), false);
   });
 
   test("accepts every declared role", () => {
@@ -84,5 +100,35 @@ describe("isLastActiveAdmin — the last-administrator safeguard (disable + role
     // and "never let anyone strand the system" the same guarantee.
     const soleAdmin = [user(7, "ADMIN")];
     assert.equal(isLastActiveAdmin(soleAdmin, 7), true);
+  });
+});
+
+describe("read-only roles (guest demo / viewer)", () => {
+  test("VIEWER and GUEST are read-only; every other role may write", () => {
+    assert.equal(isReadOnlyRole("VIEWER"), true);
+    assert.equal(isReadOnlyRole("GUEST"), true);
+    assert.equal(isReadOnlyRole("ADMIN"), false);
+    assert.equal(isReadOnlyRole("OFFICER"), false);
+    assert.equal(isReadOnlyRole("VERIFIER"), false);
+  });
+
+  test("read-only is matched exactly, never by case or prefix", () => {
+    assert.equal(isReadOnlyRole("guest"), false);
+    assert.equal(isReadOnlyRole("GUESTS"), false);
+    assert.equal(isReadOnlyRole(""), false);
+  });
+
+  test("isGuest identifies only the guest role", () => {
+    assert.equal(isGuest("GUEST"), true);
+    assert.equal(isGuest("VIEWER"), false);
+    assert.equal(isGuest("ADMIN"), false);
+  });
+
+  test("an admin is never accidentally read-only", () => {
+    // Guards the pairing the mutation middleware depends on: the roles that
+    // manage users must always be able to write.
+    for (const role of ASSIGNABLE_ROLES) {
+      if (isAdmin(role)) assert.equal(isReadOnlyRole(role), false);
+    }
   });
 });

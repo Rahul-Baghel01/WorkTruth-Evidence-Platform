@@ -26,4 +26,14 @@ export interface FinancialPeerGroup {
      * @nullable
      */
   percentileRank?: number | null;
+  /**
+     * Median SANCTIONED AMOUNT across the peer group, in rupees. Distinct from `median`, which is the median expenditure-to-sanction ratio. Null when the peer group is smaller than the minimum needed for a meaningful median.
+     * @nullable
+     */
+  medianSanction?: number | null;
+  /**
+     * This project's sanctioned amount divided by `medianSanction` — e.g. 2.3 means the project was sanctioned 2.3x what comparable work was sanctioned for. Null when `medianSanction` is null.
+     * @nullable
+     */
+  costRatio?: number | null;
 }

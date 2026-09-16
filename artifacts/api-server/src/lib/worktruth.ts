@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { count, desc, eq } from "drizzle-orm";
 import { Jimp, JimpMime } from "jimp";
 import { db } from "@workspace/db";
@@ -24,6 +25,17 @@ import { computeCrossModalInconsistencies } from "./cross-modal-engine";
 import { DEFAULT_LENS_WEIGHTS, evaluateEvidenceFusion, type EvidenceFusionResult, type LensName } from "./fusion-engine";
 import { evaluateVerificationPriority } from "./verification-priority-engine";
 import { extractImageMetadata, sha256Hex } from "./image-processing";
+import { buildHeroSceneImage } from "./demo-evidence-images";
+import {
+  HERO_DESCRIPTION,
+  HERO_EVIDENCE_ASSETS,
+  HERO_FINANCIAL_RECORDS,
+  HERO_PROGRESS_RECORDS,
+  HERO_PROJECT_ID,
+  HERO_SOURCE_DESCRIPTION,
+  HERO_SOURCE_PROJECT_ID,
+  HERO_STATIC_EVIDENCE_SOURCE,
+} from "./hero-case";
 import { evidenceStorage } from "./storage";
 
 const LENS_DISPLAY_LABEL: Record<LensName, string> = {
@@ -62,7 +74,10 @@ export function toSignalComponents(fusion: EvidenceFusionResult) {
 }
 
 const baseProjects = [
-  ["P-1089", "Construction of Community Hall at Village X", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 2700000, 2680000, 100, 82, "HIGH", "High cost + similar photograph", 26.4499, 80.3319, "2024-01-15", "2024-07-15", "Village X, Kanpur", "BuildWell Infrastructure"],
+  // Hero anomaly case — see hero-case.ts. Its progress (28%) is deliberately
+  // far below its spend, and its sanction far above the comparable community
+  // halls seeded below; the engines derive every signal from that evidence.
+  ["P-1089", "Construction of Community Hall at Village X", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 2700000, 2680000, 28, 82, "HIGH", "High cost + reused photograph", 26.4499, 80.3319, "2024-01-15", "2024-07-15", "Village X, Kanpur", "BuildWell Infrastructure"],
   ["P-2041", "Upgradation of Primary School at Bithoor", "School", "Kanpur Nagar", "Uttar Pradesh", 1850000, 1710000, 88, 94, "LOW", "No anomaly detected", 26.6067, 80.2707, "2024-02-01", "2024-09-30", "Bithoor, Kanpur", "Shiksha Works"],
   ["P-3022", "Development of Public Community Centre at Village X", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 2250000, 2140000, 72, 78, "MODERATE", "Similar project description", 26.4531, 80.3401, "2024-03-12", "2024-11-30", "Village X, Kanpur", "Jan Sewa Projects"],
   ["P-4150", "Improvement of rural access road near Chaubepur", "Road", "Kanpur Dehat", "Uttar Pradesh", 3200000, 3060000, 100, 69, "HIGH", "GPS mismatch + visual reuse", 26.5052, 80.1453, "2023-11-10", "2024-05-30", "Chaubepur, Kanpur Dehat", "Rural Connect LLP"],
@@ -82,9 +97,24 @@ const baseProjects = [
   ["P-3184", "Panchayat office renovation", "Public Facility", "Prayagraj", "Uttar Pradesh", 1580000, 1510000, 100, 92, "LOW", "No anomaly detected", 25.4358, 81.8463, "2023-11-22", "2024-05-25", "Koraon, Prayagraj", "CivicBuild"],
   ["P-3369", "Primary road culvert replacement", "Road", "Mirzapur", "Uttar Pradesh", 3650000, 3520000, 81, 74, "HIGH", "Cost deviation + delay", 25.146, 82.569, "2024-01-30", "2024-10-10", "Chunar, Mirzapur", "BridgePoint"],
   ["P-3902", "Drinking water pipeline extension", "Water", "Varanasi", "Uttar Pradesh", 2900000, 2750000, 100, 87, "LOW", "No anomaly detected", 25.3176, 82.9739, "2024-02-08", "2024-08-20", "Rohania, Varanasi", "Jal Jeevan Mission"],
+  // Additional community halls in the same district. Ordinary projects in
+  // their own right — they exist so the category has a real peer group with
+  // enough members for the financial engine to take a meaningful median
+  // sanction, which is what the hero project's cost is then measured against.
+  // Their own costs are unremarkable and they raise no anomalies.
+  ["P-4021", "Construction of community hall at Sarsaul", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 1120000, 1064000, 100, 90, "LOW", "No anomaly detected", 26.3861, 80.4622, "2024-01-22", "2024-07-30", "Sarsaul, Kanpur", "Gram Nirman Sewa"],
+  ["P-4098", "Community hall and meeting room at Ghatampur", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 1150000, 1104000, 100, 92, "LOW", "No anomaly detected", 26.1447, 80.1672, "2023-12-18", "2024-06-28", "Ghatampur, Kanpur", "CivicBuild"],
+  ["P-4133", "Panchayat community hall at Shivrajpur", "Community Hall", "Kanpur Nagar", "Uttar Pradesh", 1200000, 1128000, 96, 88, "LOW", "No anomaly detected", 26.5822, 80.1533, "2024-02-26", "2024-08-30", "Shivrajpur, Kanpur", "Jan Sewa Projects"],
 ] as const;
 
-function projectDescription(name: string) {
+// Most seed projects simply use their own name as their description. The hero
+// pair carries fuller, deliberately near-identical narratives instead — a
+// copied-and-lightly-edited submission — so the text engine has real prose to
+// measure. It computes the actual TF-IDF cosine similarity between them; the
+// similarity is never asserted here.
+function projectDescription(id: string, name: string) {
+  if (id === HERO_PROJECT_ID) return HERO_DESCRIPTION;
+  if (id === HERO_SOURCE_PROJECT_ID) return HERO_SOURCE_DESCRIPTION;
   return name;
 }
 
@@ -145,18 +175,62 @@ async function seedProgressRecordsFromScalar(project: { id: string; progress: nu
 // ephemeral filesystem and why regenerating (rather than 404ing) is honest:
 // it reproduces the identical bytes already hashed into that row's sha256/
 // perceptualHash at seed time, not a different or fabricated image.
-export async function buildSeedEvidenceImageBuffer(): Promise<Buffer> {
-  const size = 48;
-  const cell = 12;
-  const colorA = 0x2244ffff;
-  const colorB = 0xffaa33ff;
-  const image = new Jimp({ width: size, height: size, color: colorA });
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      if ((Math.floor(x / cell) + Math.floor(y / cell)) % 2 === 1) image.setPixelColor(colorB, x, y);
+// Small deterministic PRNG (mulberry32) — used only to lay out the synthetic
+// seed images below. Deterministic by design: variant N always produces the
+// exact same pixels, so a row's stored hashes stay valid forever.
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// `variant` makes each seeded project's image VISUALLY DISTINCT from every
+// other one. That matters now that the visual engine compares perceptual
+// hashes ACROSS projects (see visual-engine.ts): when every seed project
+// shared one identical image, every project was a byte-identical duplicate of
+// every other, which would drown the real signal in noise.
+//
+// The layout is a 4x4 block of large luminance patches, because a perceptual
+// hash keys on LOW-FREQUENCY structure (32x32 greyscale -> 8x8 DCT) — fine
+// detail would barely move the hash. The seed constant (211) was chosen by
+// measuring: across 24 variants the minimum pairwise Hamming distance is 10
+// of 64 bits, comfortably outside the engine's near-duplicate threshold of 8,
+// so ordinary seed projects never falsely match each other and the hero
+// case's genuine near-duplicate pair stands out on its own merits.
+export async function buildSeedEvidenceImageBuffer(variant = 0): Promise<Buffer> {
+  const size = 96;
+  const macro = 4;
+  const cell = size / macro;
+  const rand = mulberry32(variant * 2654435761 + 211);
+  const image = new Jimp({ width: size, height: size, color: 0x1e2832ff });
+  for (let my = 0; my < macro; my++) {
+    for (let mx = 0; mx < macro; mx++) {
+      const lum = 25 + Math.floor(rand() * 8) * 30;
+      const color = ((lum << 24) | (Math.round(lum * 0.86) << 16) | (Math.round(lum * 0.72) << 8) | 0xff) >>> 0;
+      for (let y = my * cell; y < (my + 1) * cell; y++) {
+        for (let x = mx * cell; x < (mx + 1) * cell; x++) image.setPixelColor(color, x, y);
+      }
     }
   }
   return image.getBuffer(JimpMime.png);
+}
+
+// The seed image filename carries its variant so the image-serving route can
+// regenerate the exact same bytes if the stored file is ever missing (see that
+// route). Parsed rather than stored in a new column — the filename is already
+// written by the seed and never by an upload.
+export function seedImageFilename(variant: number): string {
+  return `seed-site-photo-${variant}.png`;
+}
+
+export function seedVariantFromFilename(filename: string | null): number {
+  const match = /^seed-site-photo-(\d+)\.png$/.exec(filename ?? "");
+  return match ? Number(match[1]) : 0;
 }
 
 // GPS/capturedAt are seed-authored DB values near the project's own
@@ -164,7 +238,7 @@ export async function buildSeedEvidenceImageBuffer(): Promise<Buffer> {
 // are not claimed to be EXIF-extracted, the same way the project's own
 // latitude/longitude are seed-authored rather than derived from anything.
 async function seedEvidenceImage(project: { id: string; latitude: number; longitude: number; startDate: string }, variant: number) {
-  const buffer = await buildSeedEvidenceImageBuffer();
+  const buffer = await buildSeedEvidenceImageBuffer(variant);
   const metadata = await extractImageMetadata(buffer);
   const sha256 = sha256Hex(buffer);
   const storageKey = await evidenceStorage.save(project.id, buffer, "png");
@@ -172,7 +246,7 @@ async function seedEvidenceImage(project: { id: string; latitude: number; longit
   await db.insert(evidenceImagesTable).values({
     projectId: project.id,
     storageKey,
-    originalFilename: `seed-site-photo-${variant}.png`,
+    originalFilename: seedImageFilename(variant),
     mimeType: "image/png",
     fileSizeBytes: buffer.length,
     width: metadata.width,
@@ -186,6 +260,55 @@ async function seedEvidenceImage(project: { id: string; latitude: number; longit
     label: "Seed site photograph",
     source: "seed_demo",
   });
+}
+
+// The hero case's two photographs. Their bytes come from the same generator
+// that wrote the committed static files under the frontend's public/evidence/
+// directory, so the hash stored here belongs to exactly the image a reviewer
+// sees. The pair is a genuine perceptual near-duplicate; the visual engine
+// measures how near, and nothing about that measurement is written down here.
+async function seedHeroEvidenceImages(projectsById: Map<string, ProjectRow>) {
+  for (const asset of HERO_EVIDENCE_ASSETS) {
+    const project = projectsById.get(asset.projectId);
+    if (!project) continue;
+    const buffer = await buildHeroSceneImage(asset.variant);
+    const metadata = await extractImageMetadata(buffer);
+    // Still written to evidence storage so the normal API file route serves
+    // it too — the static copy is a reliability measure, not a replacement.
+    const storageKey = await evidenceStorage.save(project.id, buffer, "png");
+    await db.insert(evidenceImagesTable).values({
+      projectId: project.id,
+      storageKey,
+      originalFilename: asset.filename,
+      mimeType: "image/png",
+      fileSizeBytes: buffer.length,
+      width: metadata.width,
+      height: metadata.height,
+      capturedAt: new Date(asset.capturedAt),
+      gpsLatitude: project.latitude + asset.gpsOffsetDegrees,
+      gpsLongitude: project.longitude,
+      gpsAccuracyMeters: 12,
+      perceptualHash: metadata.perceptualHash,
+      sha256: sha256Hex(buffer),
+      label: asset.label,
+      source: HERO_STATIC_EVIDENCE_SOURCE,
+    });
+  }
+}
+
+// Replaces the hero project's generic two-row ledger and progress reports with
+// the case's own records (hero-case.ts): an expenditure predating the sanction,
+// and reported progress that stays low while the money is spent. Both are
+// ordinary rows the existing engines read — nothing marks them "anomalous".
+async function seedHeroCaseRecords() {
+  await db.delete(financialRecordsTable).where(eq(financialRecordsTable.projectId, HERO_PROJECT_ID));
+  await db.insert(financialRecordsTable).values(
+    HERO_FINANCIAL_RECORDS.map((record) => ({ projectId: HERO_PROJECT_ID, ...record, source: "seed_demo" as const })),
+  );
+  await db.delete(progressRecordsTable).where(eq(progressRecordsTable.projectId, HERO_PROJECT_ID));
+  await db.insert(progressRecordsTable).values(
+    HERO_PROGRESS_RECORDS.map((record) => ({ projectId: HERO_PROJECT_ID, ...record, source: "seed_demo" as const })),
+  );
 }
 
 export async function buildAnalysis(project: ProjectRow) {
@@ -352,9 +475,36 @@ async function ensureSeedAccount(config: { emailVar: string; passwordVar: string
 // existing admin; this just makes the very first admin bootstrappable
 // without one already existing (the chicken-and-egg problem admin user
 // management would otherwise have).
+// The shared account behind "Explore demo". Configurable so a deployment can
+// point it elsewhere, but it needs no configuration to work — unlike the
+// officer/admin accounts, which stay disabled until their credentials are set.
+export function guestAccountEmail(): string {
+  return normalizeEmail(process.env.GUEST_DEMO_EMAIL || "guest.demo@example.com");
+}
+
+// Created with a random password that is never stored anywhere and never
+// returned: the only way to obtain a session for it is POST /auth/guest, and
+// that session can only read (GUEST is a read-only role — see
+// authorization.ts). Set GUEST_DEMO_ENABLED=false to leave it uncreated.
+async function ensureGuestAccount() {
+  if ((process.env.GUEST_DEMO_ENABLED ?? "true").toLowerCase() === "false") return;
+  const email = guestAccountEmail();
+  const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email));
+  if (existing) return;
+  const passwordHash = await hashPassword(randomUUID() + randomUUID());
+  await db.insert(usersTable).values({
+    email,
+    name: process.env.GUEST_DEMO_NAME || "Guest Reviewer",
+    role: "GUEST",
+    passwordHash,
+    isActive: true,
+  });
+}
+
 async function ensureSeedUser() {
   await ensureSeedAccount({ emailVar: "SEED_OFFICER_EMAIL", passwordVar: "SEED_OFFICER_PASSWORD", nameVar: "SEED_OFFICER_NAME", defaultName: "Duty Officer", role: "OFFICER" });
   await ensureSeedAccount({ emailVar: "SEED_ADMIN_EMAIL", passwordVar: "SEED_ADMIN_PASSWORD", nameVar: "SEED_ADMIN_NAME", defaultName: "System Administrator", role: "ADMIN" });
+  await ensureGuestAccount();
 }
 
 // Whether the 20-project demo dataset may be auto-created. The officer
@@ -396,7 +546,7 @@ export async function ensureSeeded() {
     actualCompletion: null,
     location: item[15],
     contractor: item[16],
-    description: projectDescription(item[1]),
+    description: projectDescription(item[0], item[1]),
     source: "seed_demo" as const,
   }));
   await db.insert(projectsTable).values(projects).onConflictDoNothing();
@@ -409,13 +559,19 @@ export async function ensureSeeded() {
   // downstream of them have actual data to compute from, not just the
   // project's summary scalars. Runs once, guarded by the empty-projects-
   // table check above.
+  const heroProjectIds = new Set(HERO_EVIDENCE_ASSETS.map((asset) => asset.projectId));
   await Promise.all(
     rows.map(async (project, index) => {
       await seedFinancialRecordsFromScalars(project, "seed_demo");
       await seedProgressRecordsFromScalar(project);
-      if (index < rows.length - 2) await seedEvidenceImage(project, index);
+      // The hero pair gets its own photographs below; the last two projects
+      // stay deliberately bare so INSUFFICIENT_EVIDENCE remains demonstrated.
+      if (index < rows.length - 2 && !heroProjectIds.has(project.id)) await seedEvidenceImage(project, index);
     }),
   );
+
+  await seedHeroEvidenceImages(new Map(rows.map((project) => [project.id, project])));
+  await seedHeroCaseRecords();
 
   const analyses = await Promise.all(
     rows.map(async (project) => ({ projectId: project.id, status: "Completed", payload: await buildAnalysis(project) })),
@@ -452,6 +608,23 @@ export async function getProject(id: string) {
 // Verification Priority and primaryFinding the detail page shows, rather
 // than the raw projectsTable.priority/primaryFlag provenance columns — see
 // toProject's doc comment.
+// Verification-queue ordering: most urgent first. The queue exists to answer
+// "what should an officer look at next", so it ranks by the computed
+// Verification Priority band, then by the routing score within a band.
+//
+// Pure and exported so the ordering is unit-tested rather than implicit in a
+// route handler — it previously had no implementation at all, which let a
+// CRITICAL project sit below a clean one in the default view.
+const PRIORITY_RANK: Record<string, number> = { CRITICAL: 4, HIGH: 3, MODERATE: 2, LOW: 1 };
+
+export function compareByVerificationPriority(
+  a: { computedPriority: string; computedRiskScore: number },
+  b: { computedPriority: string; computedRiskScore: number },
+): number {
+  const bandDelta = (PRIORITY_RANK[b.computedPriority] ?? 0) - (PRIORITY_RANK[a.computedPriority] ?? 0);
+  return bandDelta !== 0 ? bandDelta : b.computedRiskScore - a.computedRiskScore;
+}
+
 export async function listProjectRows() {
   await ensureSeeded();
   const rows = await db
@@ -464,6 +637,9 @@ export async function listProjectRows() {
     return {
       ...project,
       computedPriority: analysis?.risk?.priority ?? project.priority,
+      // The routing score behind that priority, surfaced so the queue can rank
+      // within a priority band rather than falling back on an unrelated field.
+      computedRiskScore: analysis?.risk?.score ?? 0,
       computedPrimaryFinding: analysis?.risk?.primaryFinding ?? "No material inconsistency identified; evidence is currently consistent.",
       lensAnomalies: (analysis?.fusion?.lenses?.filter((lens) => lens.isAnomalous).map((lens) => lens.lens as string) ?? []) as string[],
     };

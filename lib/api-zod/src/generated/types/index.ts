@@ -16,6 +16,7 @@ export * from './crossModalAnalysis';
 export * from './crossModalInconsistency';
 export * from './crossModalInconsistencyDimensionsItem';
 export * from './crossModalInconsistencyObservedValues';
+export * from './crossProjectVisualMatch';
 export * from './dashboardStats';
 export * from './distributionPoint';
 export * from './evidenceCoverage';

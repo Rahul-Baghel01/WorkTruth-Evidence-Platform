@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { getSessionUser, SESSION_COOKIE_NAME, type SessionUser } from "../lib/auth";
-import { isAdmin } from "../lib/authorization";
+import { isAdmin, isReadOnlyRole } from "../lib/authorization";
 
 declare global {
   namespace Express {
@@ -30,6 +30,23 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 export function requireAdmin(req: Request, res: Response, next: NextFunction): void {
   if (!req.user || !isAdmin(req.user.role)) {
     res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+  next();
+}
+
+// Blocks every state-changing request from a read-only role (VIEWER, and the
+// GUEST account behind "Explore demo"). Runs after requireAuth, like
+// requireAdmin. This is where read-only is actually enforced: guest mode is
+// read-only because the server refuses the write, not because the UI hid the
+// control — a guest calling the API directly gets a 403 either way.
+export function requireMutationRole(req: Request, res: Response, next: NextFunction): void {
+  if (!req.user) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  if (isReadOnlyRole(req.user.role)) {
+    res.status(403).json({ error: "This account has read-only access." });
     return;
   }
   next();

@@ -254,7 +254,7 @@ describe("evaluateVerificationPriority", () => {
       expenditure: 500000,
       paymentTotal: 500000,
       expenditureRatio: 0.5,
-      peerGroup: { dimension: "category", size: 5, median: 0.5, mean: 0.5, standardDeviation: 0.1, mad: 0.05, percentileRank: 0.5 },
+      peerGroup: { dimension: "category", size: 5, median: 0.5, mean: 0.5, standardDeviation: 0.1, mad: 0.05, percentileRank: 0.5, medianSanction: 1000000, costRatio: 1 },
       checks: [{ name: "expenditure_before_sanction", severity: "HIGH", message: "x", supportingRecordIds: [1] }],
       reasons: ["x"],
       recordCount: 6,
@@ -326,6 +326,7 @@ describe("evaluateVerificationPriority", () => {
       latestCapturedAt: "2024-02-01T00:00:00.000Z",
       checks: [],
       reasons: [],
+      crossProjectMatch: null,
       engineVersion: "visual-v1",
       updatedAt: "2025-01-01T00:00:00.000Z",
     };

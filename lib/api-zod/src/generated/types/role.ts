@@ -7,7 +7,7 @@
  */
 
 /**
- * ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users.
+ * ADMIN manages users and has full access. OFFICER/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard/queue; VERIFIER's access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind "Explore demo"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.
  */
 export type Role = typeof Role[keyof typeof Role];
 
@@ -17,4 +17,5 @@ export const Role = {
   OFFICER: 'OFFICER',
   VERIFIER: 'VERIFIER',
   VIEWER: 'VIEWER',
+  GUEST: 'GUEST',
 } as const;
