@@ -56,3 +56,6 @@ Thumbs.db
 # Uploaded evidence images (local filesystem storage — see
 # artifacts/api-server/src/lib/storage.ts). Never commit uploaded files.
 /artifacts/api-server/uploads/
+
+# Vercel CLI project link (created by `vercel link` / `vercel pull`)
+.vercel

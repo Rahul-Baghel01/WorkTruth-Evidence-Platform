@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -71,8 +72,15 @@ export class LocalFilesystemStorage implements EvidenceStorage {
   }
 }
 
+// On Vercel the deployment filesystem is read-only; only the OS temp dir is
+// writable, and it is per-instance and ephemeral. Files written there can
+// vanish at any time — the evidence row (hashes, GPS, capture date) still
+// persists in Postgres, and a missing real upload is reported as 404, never
+// fabricated. See VERCEL_DEPLOYMENT.md.
 const UPLOAD_ROOT = process.env.EVIDENCE_UPLOAD_DIR
   ? path.resolve(process.env.EVIDENCE_UPLOAD_DIR)
-  : path.resolve(process.cwd(), "uploads");
+  : process.env.VERCEL
+    ? path.join(tmpdir(), "worktruth-evidence")
+    : path.resolve(process.cwd(), "uploads");
 
 export const evidenceStorage: EvidenceStorage = new LocalFilesystemStorage(UPLOAD_ROOT);
