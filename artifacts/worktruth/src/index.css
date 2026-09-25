@@ -359,8 +359,6 @@ button, a, input, select, textarea { transition: color .2s ease, background-colo
 .brand-cross { --cross-size: 23px; width: var(--cross-size); height: var(--cross-size); flex: none; border: 1px solid currentColor; display: inline-block; position: relative; transform: rotate(45deg); }
 .brand-cross i { position: absolute; display: block; background: currentColor; width: 1px; height: calc(var(--cross-size) * 0.565); left: calc(var(--cross-size) * 0.435); top: calc(var(--cross-size) * 0.174); }
 .brand-cross i:last-child { transform: rotate(90deg); }
-.login-mark .brand-cross, .sidebar-top .brand-mark .brand-cross { --cross-size: 29px; }
-.sidebar-collapsed .sidebar-top .brand-mark .brand-cross { --cross-size: 23px; }
 .icon-button { border: 0; background: transparent; color: inherit; padding: 7px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
 .icon-button:hover { background: hsl(var(--elevate-2)); }
 .sidebar-collapse { color: hsl(var(--sidebar-foreground) / .58); }
