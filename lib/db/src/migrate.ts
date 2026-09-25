@@ -1,7 +1,7 @@
 // Idempotent schema bootstrap for a Postgres database that already has the
 // generated SQL migrations under ./drizzle (see `generate` in package.json)
-// but does not yet have the WorkTruth tables. Used both locally and as the
-// documented Render bootstrap step (`pnpm db:migrate` — see DEPLOYMENT.md).
+// but does not yet have the WorkTruth tables. Used locally and for the Neon
+// bootstrap step (`pnpm db:migrate` — see VERCEL_DEPLOYMENT.md).
 //
 // -----------------------------------------------------------------------
 // Why this is a hand-rolled `pg` script rather than drizzle-kit or
@@ -15,16 +15,9 @@
 //
 // The first version of this script used drizzle-orm's OWN programmatic
 // migrator (`drizzle-orm/node-postgres/migrator`) instead, which avoids the
-// CLI's introspection — but it unconditionally runs
-// `CREATE SCHEMA IF NOT EXISTS "drizzle"` before applying anything, to house
-// its own migration-tracking table. Render's managed Postgres (the role this
-// project connects as) rejected exactly that statement: it can create
-// TABLES inside the pre-existing "public" schema — which is all the actual
-// application schema (see ../drizzle/0000_last_sauron.sql) needs — but does
-// not have the broader privilege to create a brand-new schema. That is a
-// database-level `CREATE` privilege, distinct from privileges on the
-// already-existing "public" schema, and managed/shared Postgres tiers
-// commonly withhold it from the application role.
+// CLI's introspection — but it creates a separate "drizzle" schema for its
+// tracking table. This script tracks migrations inside the existing public
+// schema, so the database role needs no separate schema-creation privilege.
 //
 // So this script never creates a schema. It:
 //   1. Reads the migration journal + SQL files from ./drizzle directly
@@ -53,18 +46,9 @@
 // -----------------------------------------------------------------------
 // TLS
 // -----------------------------------------------------------------------
-// Render's Postgres (at least the connection string reached from outside
-// Render's own network, which is what this script uses to bootstrap a
-// database from a developer machine) rejects a plaintext connection
-// outright ("FATAL: SSL/TLS required") — `pg` does not infer TLS from the
-// connection string alone here, so it must be requested explicitly via the
-// `ssl` Pool option. Render's server certificate is not chained to a CA in
-// Node's default trust store, so verifying it the normal way fails even
-// once TLS is requested; `rejectUnauthorized: false` (confirmed to work
-// against this exact database in prior direct-connection testing) still
-// encrypts the connection — it only skips hostname/CA-chain verification,
-// which is what every Render Postgres client guide recommends since Render
-// doesn't publish a client-verifiable CA. See resolveSsl() below.
+// Remote connections request TLS with normal certificate verification.
+// Local Docker PostgreSQL uses plaintext on loopback. DATABASE_SSL can
+// override host detection when a private database uses a different topology.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -87,12 +71,11 @@ const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
 // set — for any target where host-based detection below would guess wrong.
 // Left unset (the normal case), the target is detected by host: the only
 // non-TLS Postgres this project talks to is the local docker-compose
-// instance, always reached at localhost — every other host (Render
-// included) requires TLS. Never logs `connectionString`.
-function resolveSsl(connectionString: string): false | { rejectUnauthorized: false } {
+// instance, always reached at localhost. Never logs `connectionString`.
+function resolveSsl(connectionString: string): boolean {
   const override = process.env.DATABASE_SSL?.trim().toLowerCase();
   if (override === "disable" || override === "false") return false;
-  if (override === "require" || override === "true") return { rejectUnauthorized: false };
+  if (override === "require" || override === "true") return true;
 
   let host: string;
   try {
@@ -101,12 +84,12 @@ function resolveSsl(connectionString: string): false | { rejectUnauthorized: fal
     // Not parseable as a URL (e.g. a bare host:port/db form with no
     // scheme) — fail safe toward encryption rather than silently
     // connecting in plaintext to an unrecognized target.
-    return { rejectUnauthorized: false };
+    return true;
   }
   // WHATWG URL keeps the brackets on a bracketed IPv6 host ("[::1]"), so
   // check both forms.
   const isLocal = host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
-  return isLocal ? false : { rejectUnauthorized: false };
+  return !isLocal;
 }
 
 // Lives in "public" (see header comment) — leading double underscore keeps

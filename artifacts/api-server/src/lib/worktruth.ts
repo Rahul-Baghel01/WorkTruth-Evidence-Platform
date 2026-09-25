@@ -171,8 +171,8 @@ async function seedProgressRecordsFromScalar(project: { id: string; progress: nu
 // project-specific pixel data, so every call produces byte-identical output.
 // Exported so the image-serving route (routes/worktruth.ts) can regenerate
 // the exact same bytes on demand if a seed_demo row's stored file is ever
-// missing — see that route's own comment for why that happens on Render's
-// ephemeral filesystem and why regenerating (rather than 404ing) is honest:
+// missing — see that route's own comment for temporary instance storage and
+// and why regenerating (rather than 404ing) is honest:
 // it reproduces the identical bytes already hashed into that row's sha256/
 // perceptualHash at seed time, not a different or fabricated image.
 // Small deterministic PRNG (mulberry32) — used only to lay out the synthetic
@@ -507,7 +507,7 @@ async function ensureSeedUser() {
   await ensureGuestAccount();
 }
 
-// Whether the 20-project demo dataset may be auto-created. The officer
+// Whether the 23-project demo dataset may be auto-created. The officer
 // account (ensureSeedUser, above) is always provisioned when configured — it
 // is real operator identity, not demo data. The demo PROJECTS are:
 //   - seeded in local development (the default), and

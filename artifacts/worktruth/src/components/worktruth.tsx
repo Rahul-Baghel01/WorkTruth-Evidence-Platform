@@ -8,13 +8,11 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
-  Bell,
   BookOpenCheck,
   Building2,
   CalendarDays,
   ChevronDown,
   ChevronRight,
-  CircleHelp,
   ClipboardCheck,
   Database,
   FileCheck2,
@@ -25,7 +23,6 @@ import {
   Globe2,
   House,
   Layers3,
-  LineChart,
   ListFilter,
   LogOut,
   MapPinned,
@@ -35,7 +32,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -43,7 +39,6 @@ import {
   UploadCloud,
   UserCog,
   UserRound,
-  X,
 } from 'lucide-react';
 import type {
   ActivityItem,
@@ -200,12 +195,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const user = sessionQuery.data?.user;
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [alertsOpen, setAlertsOpen] = useState(false);
   const active = (href: string) => location === href || (href !== '/dashboard' && location.startsWith(href));
   const handleSignOut = () => { logout.mutate(undefined, { onSettled: () => { queryClient.clear(); setLocation('/'); } }); };
-  const criticalCount = stats?.criticalRisk ?? 0;
-  const highPriorityCount = stats?.verificationRequired ?? 0;
-  const hasAlerts = highPriorityCount > 0;
   return (
     <div className="app-shell">
       <aside className={cn('sidebar', collapsed && 'sidebar-collapsed', open && 'sidebar-open')}>
@@ -218,14 +209,13 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="sidebar-context"><span className="context-kicker">FIELD DESK</span><span className="context-value">MPLADS · 2024–25</span></div>
         <nav className="sidebar-nav" aria-label="Primary">
           <div className="nav-label">Monitor</div>
-          {navItems.map(({ href, label, icon: Icon }) => (
+          {navItems.filter(({ href }) => href !== '/upload' || !isReadOnlyRole(user?.role)).map(({ href, label, icon: Icon }) => (
             <Link key={href} href={href} className={cn('nav-item', active(href) && 'nav-item-active')} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`}>
-              <Icon size={17} strokeWidth={active(href) ? 2.4 : 1.8} /><span>{label}</span>{href === '/projects' && <span className="nav-count">{stats?.totalProjects ?? '—'}</span>}
+              <Icon size={17} strokeWidth={active(href) ? 2.4 : 1.8} /><span>{label}</span>{href === '/projects' && <span className="nav-count" title="All projects in the verification queue">{stats?.totalProjects ?? '—'}</span>}
             </Link>
           ))}
           <div className="nav-label nav-label-spaced">Governance</div>
           <Link href="/settings" className={cn('nav-item', active('/settings') && 'nav-item-active')} data-testid="link-nav-methodology"><ShieldCheck size={17} /><span>Method & access</span></Link>
-          <Link href="/settings" className="nav-item" data-testid="link-nav-settings"><Settings2 size={17} /><span>Workspace settings</span></Link>
           {user?.role === 'ADMIN' && <>
             <div className="nav-label nav-label-spaced">Administration</div>
             <Link href="/admin/users" className={cn('nav-item', active('/admin/users') && 'nav-item-active')} data-testid="link-nav-user-management"><UserCog size={17} /><span>User Management</span></Link>
@@ -243,21 +233,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <button className="mobile-menu icon-button" data-testid="button-open-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={19} /></button>
           <div className="topbar-crumb"><span className="crumb-mobile">Field desk</span><span className="crumb-sep">/</span><span>{navItems.find((item) => active(item.href))?.label ?? (active('/settings') ? 'Method & access' : active('/admin') ? 'User Management' : 'Workspace')}</span></div>
           <div className="topbar-actions">
-            <button className="icon-button" data-testid="button-help" aria-label="Help"><CircleHelp size={18} /></button>
-            <div className="alerts-anchor">
-              <button className={cn('icon-button', hasAlerts && 'has-dot')} data-testid="button-notifications" aria-label="Verification alerts" onClick={() => setAlertsOpen((v) => !v)}><Bell size={18} /></button>
-              {alertsOpen && (
-                <div className="alerts-popover" data-testid="panel-verification-alerts">
-                  <div className="alerts-popover-head"><span>VERIFICATION ALERTS</span><button className="icon-button" aria-label="Close" onClick={() => setAlertsOpen(false)}><X size={14} /></button></div>
-                  {hasAlerts ? (
-                    <p>{highPriorityCount} project{highPriorityCount === 1 ? '' : 's'} at high or critical priority — officer review recommended{criticalCount > 0 ? ` (${criticalCount} critical).` : '.'}</p>
-                  ) : (
-                    <p>No high-priority evidence inconsistencies right now.</p>
-                  )}
-                  <p className="alerts-popover-note">In-app only today. External SMS/notification integration — Phase 2.</p>
-                </div>
-              )}
-            </div>
+
             <div className="topbar-divider" />
             {isGuestRole(user?.role) && <span className="guest-chip" data-testid="chip-guest-readonly">Guest Demo · Read Only</span>}
             <div className="avatar avatar-navy">{initials(user?.name)}</div><span className="topbar-user">{user?.name ?? ''}</span>
@@ -317,8 +293,8 @@ export function FusionPanel({ fusion }: { fusion?: EvidenceFusion }) {
     <Card className="fusion-card">
       <div className="card-overline"><span>EVIDENCE FUSION</span><Layers3 size={14} /></div>
       <div className="fusion-summary">
-        <div className="fusion-metric"><strong>{scorePercent != null ? `${scorePercent}%` : '—'}</strong><span>Evidence verification signal</span></div>
-        <div className="fusion-metric"><strong>{confidencePercent}%</strong><span>Overall Evidence Confidence</span></div>
+        <div className="fusion-metric" title="Combined score from usable lens scores and independent-lens agreement; a review signal, not a probability."><strong>{scorePercent != null ? `${scorePercent}%` : '—'}</strong><span>Fused evidence signal</span></div>
+        <div className="fusion-metric" title="Confidence reflects usable evidence, lens confidence, coverage, agreement, and mixed evidence."><strong>{confidencePercent}%</strong><span>Evidence confidence</span></div>
         <EvidenceSufficiencyBadge status={fusion.status} />
       </div>
       <p className="fusion-note">This is an evidence-based verification signal derived from the five lenses below — not a probability of fraud. A human officer makes the final determination.</p>

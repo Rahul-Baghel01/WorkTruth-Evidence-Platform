@@ -395,12 +395,6 @@ button, a, input, select, textarea { transition: color .2s ease, background-colo
 .topbar-actions { display: flex; align-items: center; gap: 8px; color: hsl(var(--muted-foreground)); }
 .has-dot { position: relative; }
 .has-dot::after { content: ""; position: absolute; right: 5px; top: 5px; width: 4px; height: 4px; background: hsl(var(--destructive)); border-radius: 50%; }
-.alerts-anchor { position: relative; }
-.alerts-popover { position: absolute; right: 0; top: calc(100% + 10px); width: 268px; max-width: calc(100vw - 32px); background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: 0 12px 32px hsl(198 40% 12% / .16); padding: 14px; z-index: 20; }
-.alerts-popover-head { display: flex; align-items: center; justify-content: space-between; font: 10px var(--app-font-mono); letter-spacing: .06em; color: hsl(var(--muted-foreground)); margin-bottom: 10px; }
-.alerts-popover-head .icon-button { width: 22px; height: 22px; }
-.alerts-popover p { font-size: 11px; line-height: 1.5; color: hsl(var(--foreground)); margin: 0 0 8px; }
-.alerts-popover-note { color: hsl(var(--muted-foreground)) !important; border-top: 1px solid hsl(var(--border)); padding-top: 8px; margin: 0 !important; }
 .topbar-divider { width: 1px; height: 24px; background: hsl(var(--border)); margin: 0 10px; }
 .topbar-user { font-size: 12px; color: hsl(var(--foreground)); margin-left: 2px; }
 .mobile-menu, .mobile-scrim { display: none; }

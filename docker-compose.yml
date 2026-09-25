@@ -1,7 +1,5 @@
-# Local development PostgreSQL only. These credentials are LOCAL DEVELOPMENT
-# DEFAULTS — never reuse them for a staging/production database. Production
-# deployments must supply their own DATABASE_URL pointing at a real,
-# separately-secured PostgreSQL instance; this file has no bearing on that.
+# Local development PostgreSQL only. Set POSTGRES_PASSWORD in the untracked
+# .env file and use the same value in its DATABASE_URL.
 #
 # Usage (see README.md "WorkTruth Local Setup" for the full flow):
 #   docker compose up -d --wait   # start Postgres and wait for its healthcheck
@@ -15,7 +13,7 @@ services:
     environment:
       POSTGRES_DB: worktruth
       POSTGRES_USER: worktruth
-      POSTGRES_PASSWORD: worktruth_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     ports:
       - "5432:5432"
     volumes:

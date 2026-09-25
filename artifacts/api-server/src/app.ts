@@ -1,5 +1,4 @@
 import express, { type Express, type ErrorRequestHandler } from "express";
-import cors from "cors";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import router from "./routes";
@@ -26,23 +25,7 @@ app.use(
     },
   }),
 );
-// Permissive by default — safe for local development, where the Vite dev
-// proxy (see artifacts/worktruth/vite.config.ts) makes every browser
-// request to /api same-origin anyway, so this setting never actually comes
-// into play there. In any environment where the frontend and API are
-// genuinely served from different origins, set CORS_ORIGIN to the
-// frontend's exact origin (e.g. https://worktruth.example.gov) rather than
-// leaving this wildcard-permissive.
-// CORS_ORIGIN: the exact origin(s) the browser frontend is served from, when
-// it is a different origin than this API (e.g. a Render Static Site calling a
-// Render Web Service). Comma-separate to allow more than one (custom domain +
-// the *.onrender.com URL, say). `credentials: true` is required for the
-// session cookie to survive a cross-origin request — which is also why the
-// origin must be explicit here and can never be the "*" wildcard.
-// Unset (local dev): stays permissive — the Vite proxy already makes every
-// browser request to /api same-origin, so CORS never comes into play there.
-const corsOrigin = process.env.CORS_ORIGIN?.split(",").map((o) => o.trim()).filter(Boolean);
-app.use(corsOrigin?.length ? cors({ origin: corsOrigin, credentials: true }) : cors());
+// Local Vite proxy and production Vercel routing both serve /api same-origin.
 app.use(cookieParser());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

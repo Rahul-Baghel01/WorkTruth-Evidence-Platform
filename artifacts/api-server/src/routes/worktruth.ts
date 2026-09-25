@@ -198,7 +198,9 @@ router.get("/dashboard/stats", async (_req, res): Promise<void> => {
     highRisk: countFor("HIGH"),
     criticalRisk: countFor("CRITICAL"),
     verificationRequired: projects.filter((project) => project.priority === "HIGH" || project.priority === "CRITICAL").length,
-    averageEvidenceQuality: Math.round(projects.reduce((sum, project) => sum + project.evidenceQuality, 0) / projects.length),
+    averageEvidenceQuality: projects.length
+      ? Math.round(projects.reduce((sum, project) => sum + project.evidenceQuality, 0) / projects.length)
+      : 0,
     riskDistribution: [
       { label: "LOW", value: countFor("LOW") },
       { label: "MODERATE", value: countFor("MODERATE") },
@@ -207,15 +209,13 @@ router.get("/dashboard/stats", async (_req, res): Promise<void> => {
     ],
     categoryBreakdown: categories.map((label) => ({ label, value: projects.filter((project) => project.category === label).length })),
     anomalySignals: signalLabels.map((label) => ({ label, value: rows.filter((row) => row.lensAnomalies.includes(LENS_KEY_BY_SIGNAL_LABEL[label])).length })),
-    trend: [
-      { month: "Jan", low: 2, moderate: 1, high: 0, critical: 0 },
-      { month: "Feb", low: 3, moderate: 1, high: 1, critical: 0 },
-      { month: "Mar", low: 4, moderate: 2, high: 1, critical: 0 },
-      { month: "Apr", low: 5, moderate: 2, high: 2, critical: 0 },
-      { month: "May", low: 7, moderate: 3, high: 2, critical: 0 },
-      { month: "Jun", low: countFor("LOW"), moderate: countFor("MODERATE"), high: countFor("HIGH"), critical: countFor("CRITICAL") },
-    ],
-    flaggedProjects: projects.filter((project) => project.priority !== "LOW").slice(0, 5),
+    // No historical series exists yet; never return illustrative months as data.
+    trend: [],
+    flaggedProjects: rows
+      .filter((row) => row.computedPriority !== "LOW")
+      .sort(compareByVerificationPriority)
+      .slice(0, 5)
+      .map((row) => toProject(row, row.computedPriority, row.computedPrimaryFinding)),
   };
   res.json(GetDashboardStatsResponse.parse(stats));
 });
@@ -612,8 +612,8 @@ router.get("/projects/:id/images/:imageId/file", async (req, res): Promise<void>
     res.setHeader("Cache-Control", "private, max-age=86400");
     res.send(buffer);
   } catch {
-    // Render's Free-tier filesystem is ephemeral — a seed_demo image's file
-    // under EVIDENCE_UPLOAD_DIR can be lost across a deploy/restart even
+    // A serverless instance's filesystem is ephemeral — a seed_demo image's file
+    // under the temporary upload directory can be lost across an instance change even
     // though its DB row (GPS, capture date, hash, label) survives in
     // Postgres. That file is a deterministic synthetic image with no
     // project-specific pixel data (see buildSeedEvidenceImageBuffer's doc

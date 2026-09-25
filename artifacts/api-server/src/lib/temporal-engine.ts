@@ -332,7 +332,7 @@ export function evaluateTemporalEvidence(
       checks.push({
         name: "financial_before_start",
         severity: "MODERATE",
-        message: `${beforeStart.length} expenditure/payment record${beforeStart.length === 1 ? "" : "s"} predate the project's start date (${projectDates.startDate}).`,
+        message: `${beforeStart.length} expenditure/payment record${beforeStart.length === 1 ? "" : "s"} ${beforeStart.length === 1 ? "predates" : "predate"} the project's start date (${projectDates.startDate}).`,
         supportingRecordIds: beforeStart.map((f) => f.id),
       });
     }

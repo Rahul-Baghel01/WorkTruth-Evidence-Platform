@@ -3,12 +3,9 @@
 // committed to Git and shipped as part of the frontend build.
 //
 // Why static rather than API-served: the API serves evidence files from
-// EVIDENCE_UPLOAD_DIR behind requireAuth. On a free-tier deployment that
-// directory is ephemeral, and an <img> pointing at a cross-origin API also
-// depends on a third-party cookie reaching it — both are fragile exactly
-// where the demo must not be. Serving the two hero photographs from the
-// frontend's own origin removes storage, auth, and cookie policy from the
-// path entirely.
+// EVIDENCE_UPLOAD_DIR behind requireAuth. On a serverless deployment that
+// directory is ephemeral. Serving the two hero photographs as committed
+// frontend assets keeps the demo available across serverless instances.
 //
 // These bytes come from the same deterministic generator the database seed
 // hashes (demo-evidence-images.ts), so the committed file is byte-identical

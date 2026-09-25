@@ -62,20 +62,13 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // `Set-Cookie` on login and the clearing `Set-Cookie` on logout always
 // agree. httpOnly is non-negotiable (JS must never read the token).
 //
-// Local dev (frontend + API same origin via the Vite proxy): SameSite=Lax
-// over http — unchanged from before.
-//
-// Cross-origin deployment (a static frontend calling the API on another
-// domain — signalled by CORS_ORIGIN being set): the browser only sends the
-// cookie on those cross-site XHRs when it is SameSite=None, and SameSite=None
-// is only accepted alongside Secure. Render serves every service over HTTPS,
-// so this holds there. NODE_ENV=production also forces Secure on its own.
+// The Vite proxy and Vercel both use same-origin /api requests. Production
+// cookies are Secure; local HTTP development uses the same Lax policy.
 export function sessionCookieOptions() {
-  const crossOrigin = Boolean(process.env.CORS_ORIGIN);
   return {
     httpOnly: true as const,
-    sameSite: (crossOrigin ? "none" : "lax") as "none" | "lax",
-    secure: crossOrigin || process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
     path: "/",
   };
 }

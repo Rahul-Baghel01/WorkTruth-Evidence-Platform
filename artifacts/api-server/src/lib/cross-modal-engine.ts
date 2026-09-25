@@ -212,7 +212,7 @@ function ruleActivityBeforeSanction(input: CrossModalInput, now: string): CrossM
     // Both engines independently corroborate this — average their own
     // confidence rather than inventing a new number.
     confidence: clamp((financial.confidence + temporal.confidence) / 2, 0.1, 0.95),
-    description: `${early.length} expenditure/payment record${early.length === 1 ? "" : "s"} totalling ${money(earlyTotal)} were recorded before any known sanction date — e.g. ${money(earliest.amount)} dated ${earliest.recordedDate}. Financial and temporal analysis independently identified this same chronology fault.`,
+    description: `${early.length} expenditure/payment record${early.length === 1 ? "" : "s"} totalling ${money(earlyTotal)} ${early.length === 1 ? "was" : "were"} recorded before any known sanction date — e.g. ${money(earliest.amount)} dated ${earliest.recordedDate}. Financial and temporal analysis independently identified this same chronology fault.`,
     evidenceReferences: [
       ...early.map((r) => ({ type: "financial_record" as const, id: r.id, label: `${r.type} record`, value: `${money(r.amount)} on ${r.recordedDate}` })),
     ],

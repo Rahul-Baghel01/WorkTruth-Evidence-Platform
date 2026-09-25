@@ -313,7 +313,7 @@ export function evaluateFinancialEvidence(
         checks.push({
           name: "expenditure_before_sanction",
           severity: "HIGH",
-          message: `${early.length} expenditure/payment record${early.length === 1 ? "" : "s"} are dated before the earliest recorded sanction (${earliestSanction}) — an impossible chronology.`,
+          message: `${early.length} expenditure/payment record${early.length === 1 ? "" : "s"} ${early.length === 1 ? "is" : "are"} dated before the earliest recorded sanction (${earliestSanction}) — an impossible chronology.`,
           observed: { count: early.length },
           expected: "Expenditure and payments should occur on or after the sanction date",
           supportingRecordIds: early.map((r) => r.id),
