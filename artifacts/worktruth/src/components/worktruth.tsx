@@ -8,6 +8,7 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   BarChart3,
+  Bell,
   BookOpenCheck,
   Building2,
   CalendarDays,
@@ -32,6 +33,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -39,6 +41,7 @@ import {
   UploadCloud,
   UserCog,
   UserRound,
+  X,
 } from 'lucide-react';
 import type {
   ActivityItem,
@@ -195,13 +198,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const user = sessionQuery.data?.user;
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const active = (href: string) => location === href || (href !== '/dashboard' && location.startsWith(href));
   const handleSignOut = () => { logout.mutate(undefined, { onSettled: () => { queryClient.clear(); setLocation('/'); } }); };
+  const highPriorityCount = stats?.verificationRequired ?? 0;
+  const criticalCount = stats?.criticalRisk ?? 0;
   return (
     <div className="app-shell">
       <aside className={cn('sidebar', collapsed && 'sidebar-collapsed', open && 'sidebar-open')}>
         <div className="sidebar-top">
-          <Link href="/dashboard" className="brand-link" data-testid="link-brand"><WorkTruthMark inverse /></Link>
+          <Link href="/dashboard" className="brand-link" data-testid="link-brand" onClick={() => setOpen(false)}><WorkTruthMark inverse /></Link>
           <button className="icon-button sidebar-collapse" data-testid="button-toggle-sidebar" onClick={() => setCollapsed((v) => !v)} aria-label="Toggle sidebar">
             {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
@@ -210,15 +216,15 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav className="sidebar-nav" aria-label="Primary">
           <div className="nav-label">Monitor</div>
           {navItems.filter(({ href }) => href !== '/upload' || !isReadOnlyRole(user?.role)).map(({ href, label, icon: Icon }) => (
-            <Link key={href} href={href} className={cn('nav-item', active(href) && 'nav-item-active')} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`}>
+            <Link key={href} href={href} className={cn('nav-item', active(href) && 'nav-item-active')} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`} onClick={() => setOpen(false)}>
               <Icon size={17} strokeWidth={active(href) ? 2.4 : 1.8} /><span>{label}</span>{href === '/projects' && <span className="nav-count" title="All projects in the verification queue">{stats?.totalProjects ?? '—'}</span>}
             </Link>
           ))}
           <div className="nav-label nav-label-spaced">Governance</div>
-          <Link href="/settings" className={cn('nav-item', active('/settings') && 'nav-item-active')} data-testid="link-nav-methodology"><ShieldCheck size={17} /><span>Method & access</span></Link>
+          <Link href="/settings" className={cn('nav-item', active('/settings') && 'nav-item-active')} data-testid="link-nav-settings" onClick={() => setOpen(false)}><Settings2 size={17} /><span>Settings</span></Link>
           {user?.role === 'ADMIN' && <>
             <div className="nav-label nav-label-spaced">Administration</div>
-            <Link href="/admin/users" className={cn('nav-item', active('/admin/users') && 'nav-item-active')} data-testid="link-nav-user-management"><UserCog size={17} /><span>User Management</span></Link>
+            <Link href="/admin/users" className={cn('nav-item', active('/admin/users') && 'nav-item-active')} data-testid="link-nav-user-management" onClick={() => setOpen(false)}><UserCog size={17} /><span>User Management</span></Link>
           </>}
         </nav>
         <div className="sidebar-footer">
@@ -233,7 +239,14 @@ export function Shell({ children }: { children: ReactNode }) {
           <button className="mobile-menu icon-button" data-testid="button-open-menu" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={19} /></button>
           <div className="topbar-crumb"><span className="crumb-mobile">Field desk</span><span className="crumb-sep">/</span><span>{navItems.find((item) => active(item.href))?.label ?? (active('/settings') ? 'Method & access' : active('/admin') ? 'User Management' : 'Workspace')}</span></div>
           <div className="topbar-actions">
-
+            <div className="alerts-anchor">
+              <button className={cn('icon-button', highPriorityCount > 0 && 'has-dot')} data-testid="button-notifications" aria-label="Notifications: current verification priorities" aria-expanded={alertsOpen} aria-controls="verification-priority-panel" onClick={() => setAlertsOpen((value) => !value)}><Bell size={18} /></button>
+              {alertsOpen && <div id="verification-priority-panel" className="alerts-popover" data-testid="panel-verification-alerts">
+                <div className="alerts-popover-head"><span>CURRENT VERIFICATION PRIORITIES</span><button className="icon-button" aria-label="Close priorities" onClick={() => setAlertsOpen(false)}><X size={14} /></button></div>
+                {statsQuery.isLoading ? <p>Loading current project priorities…</p> : statsQuery.isError ? <p>Priority counts are unavailable right now.</p> : highPriorityCount > 0 ? <p>{highPriorityCount} project{highPriorityCount === 1 ? '' : 's'} at HIGH or CRITICAL priority{criticalCount > 0 ? ` (${criticalCount} CRITICAL).` : '.'} Open the verification queue for details.</p> : <p>No HIGH or CRITICAL projects in the current register.</p>}
+                <p className="alerts-popover-note">Dashboard summary only. No delivered notifications or SMS.</p>
+              </div>}
+            </div>
             <div className="topbar-divider" />
             {isGuestRole(user?.role) && <span className="guest-chip" data-testid="chip-guest-readonly">Guest Demo · Read Only</span>}
             <div className="avatar avatar-navy">{initials(user?.name)}</div><span className="topbar-user">{user?.name ?? ''}</span>
