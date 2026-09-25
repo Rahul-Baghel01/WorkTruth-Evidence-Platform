@@ -86,6 +86,14 @@ export interface CreateUserInput {
   role: Role;
 }
 
+export interface UpdateUserInput {
+  /** @minLength 1 */
+  name: string;
+  email: string;
+  role: Role;
+  isActive: boolean;
+}
+
 export interface UpdateUserStatusInput {
   isActive: boolean;
 }

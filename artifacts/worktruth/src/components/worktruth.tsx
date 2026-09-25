@@ -33,7 +33,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  Settings2,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -221,7 +220,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </Link>
           ))}
           <div className="nav-label nav-label-spaced">Governance</div>
-          <Link href="/settings" className={cn('nav-item', active('/settings') && 'nav-item-active')} data-testid="link-nav-settings" onClick={() => setOpen(false)}><Settings2 size={17} /><span>Settings</span></Link>
+          <Link href="/settings" className={cn('nav-item', active('/settings') && 'nav-item-active')} data-testid="link-nav-methodology" onClick={() => setOpen(false)}><ShieldCheck size={17} /><span>Method &amp; access</span></Link>
           {user?.role === 'ADMIN' && <>
             <div className="nav-label nav-label-spaced">Administration</div>
             <Link href="/admin/users" className={cn('nav-item', active('/admin/users') && 'nav-item-active')} data-testid="link-nav-user-management" onClick={() => setOpen(false)}><UserCog size={17} /><span>User Management</span></Link>

@@ -88,6 +88,7 @@ export * from './textCheckSeverity';
 export * from './textPeerGroup';
 export * from './textPeerMatch';
 export * from './trendPoint';
+export * from './updateUserInput';
 export * from './updateUserRoleInput';
 export * from './updateUserStatusInput';
 export * from './uploadInput';

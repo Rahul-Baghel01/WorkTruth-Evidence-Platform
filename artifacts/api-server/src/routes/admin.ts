@@ -10,6 +10,9 @@ import {
   CreateUserBody,
   CreateUserResponse,
   ListUsersResponse,
+  UpdateUserBody,
+  UpdateUserParams,
+  UpdateUserResponse,
   UpdateUserRoleBody,
   UpdateUserRoleParams,
   UpdateUserRoleResponse,
@@ -78,6 +81,58 @@ router.post("/admin/users", async (req, res): Promise<void> => {
   // Deliberately no session is created here — the new account signs in
   // itself, normally, at the existing /auth/login page.
   res.status(201).json(CreateUserResponse.parse(toManagedUser(created)));
+});
+
+router.patch("/admin/users/:id", async (req, res): Promise<void> => {
+  const params = UpdateUserParams.safeParse(req.params);
+  const body = UpdateUserBody.safeParse(req.body);
+  if (!params.success || !body.success || !body.data.name.trim()) {
+    res.status(400).json({ error: "Enter a name, a valid email, a role, and a status." });
+    return;
+  }
+
+  const email = normalizeEmail(body.data.email);
+  const allUsers = await db.select({ id: usersTable.id, email: usersTable.email, role: usersTable.role, isActive: usersTable.isActive }).from(usersTable);
+  const target = allUsers.find((row) => row.id === params.data.id);
+  if (!target) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+  // Guest login finds this single shared account by its configured email.
+  if (target.role === "GUEST" && (email !== target.email || body.data.role !== "GUEST")) {
+    res.status(400).json({ error: "The demo account's email and role cannot be changed." });
+    return;
+  }
+  if (target.role !== "GUEST" && isGuest(body.data.role)) {
+    res.status(400).json({ error: "GUEST is not an assignable role." });
+    return;
+  }
+  if ((!body.data.isActive || body.data.role !== "ADMIN") && isLastActiveAdmin(allUsers, params.data.id)) {
+    res.status(400).json({ error: "Cannot remove the last active administrator." });
+    return;
+  }
+  if (allUsers.some((row) => row.id !== target.id && row.email === email)) {
+    res.status(409).json({ error: "A user with this email already exists." });
+    return;
+  }
+
+  try {
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.update(usersTable)
+        .set({ name: body.data.name.trim(), email, role: body.data.role, isActive: body.data.isActive })
+        .where(eq(usersTable.id, target.id))
+        .returning({ id: usersTable.id, name: usersTable.name, email: usersTable.email, role: usersTable.role, isActive: usersTable.isActive, createdAt: usersTable.createdAt });
+      if (!body.data.isActive) await tx.delete(sessionsTable).where(eq(sessionsTable.userId, target.id));
+      return row;
+    });
+    res.json(UpdateUserResponse.parse(toManagedUser(updated)));
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505") {
+      res.status(409).json({ error: "A user with this email already exists." });
+      return;
+    }
+    throw error;
+  }
 });
 
 router.patch("/admin/users/:id/status", async (req, res): Promise<void> => {

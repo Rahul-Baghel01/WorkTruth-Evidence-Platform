@@ -86,6 +86,7 @@ import {
   useLogin,
   useUpdateInvestigation,
   useUpdateProject,
+  useUpdateUser,
   useUpdateUserRole,
   useUpdateUserStatus,
   useUploadProjects,
@@ -572,12 +573,18 @@ const ROLE_DESCRIPTION: Record<Role, string> = {
 // exists.") — this only branches on the HTTP status to choose which of
 // those situations to describe, never displays anything from the response
 // body itself.
-function adminErrorMessage(error: unknown, kind: 'create' | 'status' | 'role'): string {
+function adminErrorMessage(error: unknown, kind: 'create' | 'edit' | 'status' | 'role'): string {
   const status = (error as { status?: number } | null)?.status;
   if (kind === 'create') {
     if (status === 409) return 'A user with this email already exists.';
     if (status === 400) return 'Check the form — a required field is missing, the email is invalid, or the password is too short.';
     return 'That account could not be created. Please try again.';
+  }
+  if (kind === 'edit') {
+    if (status === 409) return 'A user with this email already exists.';
+    if (status === 400) return 'Check the name, email, role, and status. The demo account and last active administrator have protected settings.';
+    if (status === 404) return 'That user no longer exists.';
+    return 'That account could not be saved. Please try again.';
   }
   if (status === 400) return 'This is the last active administrator — at least one must remain.';
   if (status === 404) return 'That user no longer exists.';
@@ -587,9 +594,13 @@ function adminErrorMessage(error: unknown, kind: 'create' | 'status' | 'role'): 
 export function UserManagementPage() {
   const usersQuery = useListUsers({ query: { queryKey: getListUsersQueryKey() } });
   const createUser = useCreateUser();
+  const updateUser = useUpdateUser();
   const updateStatus = useUpdateUserStatus();
   const updateRole = useUpdateUserRole();
   const [showCreate, setShowCreate] = useState(false);
+  const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', email: '', role: 'OFFICER' as Role, isActive: true });
+  const [editError, setEditError] = useState('');
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'OFFICER' as Role });
   const [formError, setFormError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -600,6 +611,22 @@ export function UserManagementPage() {
     createUser.mutate({ data: form }, {
       onSuccess: () => { setShowCreate(false); setForm({ name: '', email: '', password: '', role: 'OFFICER' }); usersQuery.refetch(); },
       onError: (error) => setFormError(adminErrorMessage(error, 'create')),
+    });
+  };
+
+  const openEdit = (target: ManagedUser) => {
+    setEditError('');
+    setEditingUser(target);
+    setEditForm({ name: target.name, email: target.email, role: target.role, isActive: target.isActive });
+  };
+
+  const submitEdit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingUser) return;
+    setEditError('');
+    updateUser.mutate({ id: editingUser.id, data: { ...editForm, name: editForm.name.trim(), email: editForm.email.trim() } }, {
+      onSuccess: () => { setEditingUser(null); usersQuery.refetch(); },
+      onError: (error) => setEditError(adminErrorMessage(error, 'edit')),
     });
   };
 
@@ -620,7 +647,7 @@ export function UserManagementPage() {
     });
   };
 
-  const pendingAction = updateStatus.isPending || updateRole.isPending;
+  const pendingAction = updateStatus.isPending || updateRole.isPending || updateUser.isPending;
 
   return <ShellPage>
     <PageIntro
@@ -639,7 +666,7 @@ export function UserManagementPage() {
         <div className="users-head"><span>Name</span><span>Email</span><span>Role</span><span>Status</span><span>Created</span><span>Actions</span></div>
         <div className="users-list">
           {usersQuery.data.map((target) => (
-            <UserManagementRow key={target.id} user={target} pending={pendingAction} onToggleStatus={() => toggleStatus(target)} onChangeRole={(role) => changeRole(target, role)} />
+            <UserManagementRow key={target.id} user={target} pending={pendingAction} onEdit={() => openEdit(target)} onToggleStatus={() => toggleStatus(target)} onChangeRole={(role) => changeRole(target, role)} />
           ))}
         </div>
       </div>
@@ -647,10 +674,11 @@ export function UserManagementPage() {
       <EmptyState icon={UserCog} title="No users yet" description="Create the first account to get started." />
     )}
     {showCreate && <CreateUserModal form={form} setForm={setForm} error={formError} pending={createUser.isPending} onClose={() => setShowCreate(false)} onSubmit={submitCreate} />}
+    {editingUser && <EditUserModal user={editingUser} form={editForm} setForm={setEditForm} error={editError} pending={updateUser.isPending} onClose={() => setEditingUser(null)} onSubmit={submitEdit} />}
   </ShellPage>;
 }
 
-function UserManagementRow({ user, pending, onToggleStatus, onChangeRole }: { user: ManagedUser; pending: boolean; onToggleStatus: () => void; onChangeRole: (role: Role) => void }) {
+function UserManagementRow({ user, pending, onEdit, onToggleStatus, onChangeRole }: { user: ManagedUser; pending: boolean; onEdit: () => void; onToggleStatus: () => void; onChangeRole: (role: Role) => void }) {
   return <div className="users-row" data-testid={`row-user-${user.id}`}>
     <span className="users-name">{user.name}</span>
     <span className="users-email">{user.email}</span>
@@ -664,14 +692,14 @@ function UserManagementRow({ user, pending, onToggleStatus, onChangeRole }: { us
         </select>}
     <StatusPill status={user.isActive ? 'Active' : 'Disabled'} />
     <span className="users-created">{dateLabel(user.createdAt)}</span>
-    <button
+    <div className="users-actions"><button className="button button-secondary button-small" data-testid={`button-edit-user-${user.id}`} onClick={onEdit} disabled={pending}>Edit</button><button
       className={cn('button button-secondary button-small', !user.isActive && 'button-enable')}
       data-testid={`button-toggle-status-${user.id}`}
       onClick={onToggleStatus}
       disabled={pending}
     >
       {user.isActive ? <><Ban size={13} /> Disable</> : <><Check size={13} /> Enable</>}
-    </button>
+    </button></div>
   </div>;
 }
 
@@ -701,6 +729,46 @@ function CreateUserModal({ form, setForm, error, pending, onClose, onSubmit }: {
     <div className="modal-actions">
       <button type="button" className="button button-secondary" data-testid="button-cancel-create-user" onClick={onClose}>Cancel</button>
       <button type="submit" className="button button-dark" data-testid="button-submit-create-user" disabled={pending}>{pending ? 'Creating…' : 'Create Account'} <ArrowRight size={15} /></button>
+    </div>
+  </form>
+  </div></div>;
+}
+
+type EditUserForm = { name: string; email: string; role: Role; isActive: boolean };
+
+function EditUserModal({ user, form, setForm, error, pending, onClose, onSubmit }: {
+  user: ManagedUser;
+  form: EditUserForm;
+  setForm: React.Dispatch<React.SetStateAction<EditUserForm>>;
+  error: string;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (event: React.FormEvent) => void;
+}) {
+  const isDemo = user.role === 'GUEST';
+  return <div className="modal-scrim" role="presentation"><div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="edit-user-title"><div className="modal-head">
+    <div><div className="eyebrow">ACCOUNT DETAILS</div><h2 id="edit-user-title">Edit WorkTruth user</h2></div>
+    <button className="icon-button" data-testid="button-close-edit-user" onClick={onClose} disabled={pending} aria-label="Close edit user"><X size={18} /></button>
+  </div>
+  <form onSubmit={onSubmit} className="modal-form">
+    <label>Full name<input data-testid="input-edit-user-name" type="text" value={form.name} onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))} required autoComplete="name" /></label>
+    <label>Email address<input data-testid="input-edit-user-email" type="email" value={form.email} onChange={(e) => setForm((current) => ({ ...current, email: e.target.value }))} required disabled={isDemo} autoComplete="off" /></label>
+    {isDemo && <small className="field-hint">The shared demo login uses this email address.</small>}
+    <label>Role
+      <select data-testid="select-edit-user-role" value={form.role} disabled={isDemo} onChange={(e) => setForm((current) => ({ ...current, role: e.target.value as Role }))}>
+        {isDemo ? <option value="GUEST">{ROLE_LABEL.GUEST}</option> : ROLE_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_LABEL[role]}</option>)}
+      </select>
+      <small className="field-hint">{ROLE_DESCRIPTION[form.role]}</small>
+    </label>
+    <label>Status
+      <select data-testid="select-edit-user-status" value={form.isActive ? 'active' : 'disabled'} onChange={(e) => setForm((current) => ({ ...current, isActive: e.target.value === 'active' }))}>
+        <option value="active">Active</option><option value="disabled">Disabled</option>
+      </select>
+    </label>
+    {error && <div className="form-error" role="alert"><AlertCircle size={15} />{error}</div>}
+    <div className="modal-actions">
+      <button type="button" className="button button-secondary" data-testid="button-cancel-edit-user" onClick={onClose} disabled={pending}>Cancel</button>
+      <button type="submit" className="button button-dark" data-testid="button-save-edit-user" disabled={pending}>{pending ? 'Saving…' : 'Save changes'} <ArrowRight size={15} /></button>
     </div>
   </form>
   </div></div>;

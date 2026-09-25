@@ -507,20 +507,23 @@ button, a, input, select, textarea { transition: color .2s ease, background-colo
 
 /* Admin User Management */
 .users-wrap { border: 1px solid hsl(var(--card-border)); border-radius: 5px; background: hsl(var(--card)); overflow: hidden; }
-.users-head { display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(170px, 1.5fr) 145px 100px 110px 120px; gap: 12px; padding: 11px 22px; color: hsl(var(--muted-foreground)); border-bottom: 1px solid hsl(var(--border)); font: 9px var(--app-font-mono); text-transform: uppercase; }
+.users-head { display: grid; grid-template-columns: minmax(115px, 1.2fr) minmax(150px, 1.5fr) 130px 90px 100px 180px; gap: 12px; padding: 11px 22px; color: hsl(var(--muted-foreground)); border-bottom: 1px solid hsl(var(--border)); font: 9px var(--app-font-mono); text-transform: uppercase; }
 .users-list { padding: 0 22px; }
-.users-row { display: grid; grid-template-columns: minmax(140px, 1.2fr) minmax(170px, 1.5fr) 145px 100px 110px 120px; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
+.users-row { display: grid; grid-template-columns: minmax(115px, 1.2fr) minmax(150px, 1.5fr) 130px 90px 100px 180px; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid hsl(var(--border)); font-size: 12px; }
 .users-row:last-child { border-bottom: 0; }
 .users-name { font-weight: 600; }
 .users-email, .users-created { color: hsl(var(--muted-foreground)); font-size: 11px; }
 .users-role-select { min-height: 32px; border: 1px solid hsl(var(--border)); background: hsl(var(--background)); color: hsl(var(--foreground)); border-radius: 3px; font-size: 11px; padding: 0 8px; }
+.users-actions { display: flex; gap: 6px; align-items: center; }
+.users-actions .button { white-space: nowrap; }
 .button-enable { border-color: hsl(152 31% 41% / .4); color: hsl(152 31% 30%); }
 .status-active { color: hsl(152 31% 35%); border-color: hsl(152 31% 41% / .35); background: hsl(152 31% 41% / .08); }
 .status-disabled { color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / .35); background: hsl(var(--destructive) / .07); }
 .field-hint { display: block; margin-top: 5px; color: hsl(var(--muted-foreground)); font-size: 10px; line-height: 1.5; font-weight: 400; }
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   .users-head { display: none; }
   .users-row { grid-template-columns: 1fr; gap: 6px; padding: 14px 0; }
+  .users-actions { margin-top: 4px; }
   .users-email::before { content: "Email: "; }
   .users-created::before { content: "Created: "; }
 }

@@ -1904,6 +1904,33 @@ export const CreateUserResponse = zod.object({
 
 
 /**
+ * @summary Edit an existing user's name, email, role, and status. ADMIN role required. The shared demo account's email and role cannot change, and at least one active ADMIN must remain.
+ */
+export const UpdateUserParams = zod.object({
+  "id": zod.coerce.number().int()
+})
+
+
+
+
+export const UpdateUserBody = zod.object({
+  "name": zod.string().min(1),
+  "email": zod.string().email(),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.'),
+  "isActive": zod.boolean()
+})
+
+export const UpdateUserResponse = zod.object({
+  "id": zod.number().int(),
+  "name": zod.string(),
+  "email": zod.string(),
+  "role": zod.enum(['ADMIN', 'OFFICER', 'VERIFIER', 'VIEWER', 'GUEST']).describe('ADMIN manages users and has full access. OFFICER\/VERIFIER investigate and record verification decisions (OFFICER additionally sees the full dashboard\/queue; VERIFIER\'s access is otherwise the same). VIEWER is read-only and cannot record a decision or manage users. GUEST is the shared read-only account behind \"Explore demo\"; it is reported here so an administrator can see and disable it, but it can never be ASSIGNED to a user account.'),
+  "isActive": zod.boolean().describe('false = disabled; a disabled account cannot log in, and any of its existing sessions stop working immediately.'),
+  "createdAt": zod.string()
+}).describe('A user account as shown in Admin User Management. Never includes a password or password hash.')
+
+
+/**
  * @summary Enable or disable a user account. ADMIN role required. Rejected if this would leave zero active ADMIN accounts.
  */
 export const UpdateUserStatusParams = zod.object({

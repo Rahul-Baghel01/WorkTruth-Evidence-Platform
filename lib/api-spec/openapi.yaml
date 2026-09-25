@@ -546,6 +546,31 @@ paths:
         "401": { description: Not authenticated }
         "403": { description: "Authenticated, but not an ADMIN" }
         "409": { description: A user with this email already exists }
+  /admin/users/{id}:
+    patch:
+      operationId: updateUser
+      tags: [admin]
+      summary: Edit an existing user's name, email, role, and status. ADMIN role required. The shared demo account's email and role cannot change, and at least one active ADMIN must remain.
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserInput"
+      responses:
+        "200":
+          description: Updated account (never includes a password or password hash)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagedUser"
+        "400": { description: Invalid input or protected administrator/demo account change }
+        "401": { description: Not authenticated }
+        "403": { description: "Authenticated, but not an ADMIN" }
+        "404": { description: User not found }
+        "409": { description: A user with this email already exists }
   /admin/users/{id}/status:
     patch:
       operationId: updateUserStatus
@@ -674,6 +699,15 @@ components:
           description: "Temporary password for the new account, subject to the same policy as any other WorkTruth password (minimum 8 characters). Hashed with the existing scrypt implementation before storage; never stored or returned as plaintext."
         role:
           $ref: "#/components/schemas/Role"
+    UpdateUserInput:
+      type: object
+      required: [name, email, role, isActive]
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: string, format: email }
+        role:
+          $ref: "#/components/schemas/Role"
+        isActive: { type: boolean }
     UpdateUserStatusInput:
       type: object
       required: [isActive]
